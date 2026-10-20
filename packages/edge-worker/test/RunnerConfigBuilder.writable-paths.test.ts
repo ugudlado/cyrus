@@ -77,7 +77,11 @@ describe("RunnerConfigBuilder sandbox writable paths", () => {
 		});
 
 		expect(config.sandbox.filesystem).toEqual({
-			allowRead: [".", "/repos/repo-a", "/home/me/.supabase"],
+			allowRead: [
+				".",
+				"/tmp/cyrus-home/root/attachments",
+				"/home/me/.supabase",
+			],
 			denyRead: ["~/"],
 			allowWrite: ["/ws/root", "/home/me/.supabase"],
 		});

@@ -6848,6 +6848,38 @@ ${input.userComment}
 	 * falling back to "claude".
 	 */
 	/**
+	 * Git metadata dirs (common `.git` + worktree gitdir) the sandbox may write
+	 * for this session's worktree(s), validated to lie inside each repository's
+	 * own `.git` (see GitService.getWritableGitMetadataDirectories).
+	 */
+	private getValidatedGitMetadataDirectories(
+		session: CyrusAgentSession,
+		repository: RepositoryConfig,
+	): string[] {
+		const workspace = session.workspace;
+		const targets: Array<{ workingDirectory: string; repositoryPath: string }> =
+			[];
+		const repoPaths = workspace.repoPaths;
+		if (repoPaths && Object.keys(repoPaths).length > 0) {
+			for (const [repoId, workingDirectory] of Object.entries(repoPaths)) {
+				const repo = this.repositories.get(repoId);
+				if (repo) {
+					targets.push({
+						workingDirectory,
+						repositoryPath: repo.repositoryPath,
+					});
+				}
+			}
+		} else {
+			targets.push({
+				workingDirectory: workspace.path,
+				repositoryPath: repository.repositoryPath,
+			});
+		}
+		return this.gitService.getWritableGitMetadataDirectories(targets);
+	}
+
+	/**
 	 * Build agent runner configuration with common settings.
 	 * Delegates to RunnerConfigBuilder for shared config assembly.
 	 * @returns Object containing the runner config and runner type to use
@@ -6899,6 +6931,10 @@ ${input.userComment}
 			systemPrompt,
 			allowedTools,
 			allowedDirectories,
+			gitMetadataDirectories: this.getValidatedGitMetadataDirectories(
+				session,
+				repository,
+			),
 			disallowedTools,
 			resumeSessionId,
 			labels,

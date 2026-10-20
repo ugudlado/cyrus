@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type {
 	HookCallbackMatcher,
 	HookEvent,
@@ -128,6 +128,15 @@ export interface IssueRunnerConfigInput {
 	systemPrompt: string | undefined;
 	allowedTools: string[];
 	allowedDirectories: string[];
+	/**
+	 * Validated git metadata directories (the repository's common `.git` and the
+	 * worktree's own gitdir) that the OS sandbox must be able to WRITE so that
+	 * `git add`/`commit` work inside a linked worktree. Kept separate from
+	 * `allowedDirectories` (which feeds the tool-permission layer) so these
+	 * paths get write access without also being added to `allowRead`, where a
+	 * read-only grant would override the write grant.
+	 */
+	gitMetadataDirectories?: string[];
 	disallowedTools: string[];
 	resumeSessionId?: string;
 	labels?: string[];
@@ -642,20 +651,28 @@ export class RunnerConfigBuilder {
 					...input.sandboxSettings.filesystem,
 					// "." resolves to the cwd of the primary folder Claude is working in.
 					// See: https://code.claude.com/docs/en/settings#sandbox-path-prefixes
-					// allowedDirectories contains the attachments dir, repo paths, and git
-					// metadata dirs — all of which need OS-level read access alongside the worktree.
-					// Operator-whitelisted writable paths (sandbox.writablePaths) are
-					// also readable, carving them out of the `~/` deny.
+					// Read access: the worktree ("."), the attachments dir (it lives under
+					// ~/.cyrus, which `denyRead: ["~/"]` would otherwise hide), and
+					// operator-whitelisted writable paths (carved out of the `~/` deny).
+					// Repo paths and git metadata dirs are deliberately NOT listed: a
+					// read-only grant on the common `.git` overrides its write grant and
+					// makes every git write fail with "Read-only file system".
 					allowRead: [
 						".",
-						...input.allowedDirectories,
+						join(
+							input.cyrusHome,
+							basename(input.session.workspace.path),
+							"attachments",
+						),
 						...(input.sandboxWritablePaths ?? []),
 					],
 					denyRead: ["~/"],
-					// Restrict subprocess writes to the session worktree plus any
-					// operator-whitelisted paths
+					// Restrict subprocess writes to the session worktree, its validated
+					// git metadata dirs (so commits work), plus any operator-whitelisted
+					// paths
 					allowWrite: [
 						input.session.workspace.path,
+						...(input.gitMetadataDirectories ?? []),
 						...(input.sandboxWritablePaths ?? []),
 					],
 				},

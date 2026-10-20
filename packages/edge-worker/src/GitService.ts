@@ -4,11 +4,12 @@ import {
 	mkdirSync,
 	readdirSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	statSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join, resolve as pathResolve } from "node:path";
+import { basename, join, resolve as pathResolve, sep } from "node:path";
 
 import type {
 	BaseBranchResolution,
@@ -331,6 +332,94 @@ export class GitService {
 		}
 
 		return [...resolvedDirectories];
+	}
+
+	/**
+	 * Resolve the git metadata directories a sandboxed session may be granted
+	 * WRITE access to, with containment validation.
+	 *
+	 * The raw values behind `git rev-parse --git-dir/--git-common-dir` come from
+	 * files inside the worktree (`<worktree>/.git`, `worktrees/<n>/commondir`)
+	 * that a session can rewrite. A hostile session could point them at, say,
+	 * `~/.cyrus` and have the next session's sandbox grant write access there.
+	 * So each directory is `realpath`ed and kept only if it lies inside the
+	 * owning repository's own `.git`: the common dir must be exactly
+	 * `<repositoryPath>/.git`, and the per-worktree gitdir must be inside
+	 * `<repositoryPath>/.git/worktrees/`. Anything else is skipped with a warning.
+	 *
+	 * @param targets One entry per git worktree in the workspace: the worktree
+	 *   directory and the configured repository path it must belong to.
+	 */
+	public getWritableGitMetadataDirectories(
+		targets: Array<{ workingDirectory: string; repositoryPath: string }>,
+	): string[] {
+		const result = new Set<string>();
+		for (const { workingDirectory, repositoryPath } of targets) {
+			let commonRoot: string;
+			try {
+				commonRoot = realpathSync(join(repositoryPath, ".git"));
+			} catch {
+				this.logger.warn(
+					`Skipping git metadata dirs for ${workingDirectory}: ${repositoryPath}/.git not resolvable`,
+				);
+				continue;
+			}
+			const worktreesRoot = join(commonRoot, "worktrees");
+			const { gitDir, commonDir } =
+				this.resolveGitMetadataPair(workingDirectory);
+
+			const check = (
+				candidate: string | null,
+				kind: "common" | "worktree",
+			): void => {
+				if (!candidate) return;
+				let real: string;
+				try {
+					real = realpathSync(candidate);
+				} catch {
+					this.logger.warn(
+						`Skipping git ${kind} dir ${candidate}: not resolvable`,
+					);
+					return;
+				}
+				const ok =
+					kind === "common"
+						? real === commonRoot
+						: real === commonRoot || real.startsWith(worktreesRoot + sep);
+				if (!ok) {
+					this.logger.warn(
+						`Skipping git ${kind} dir ${candidate} (resolves to ${real}): outside ${commonRoot}`,
+					);
+					return;
+				}
+				result.add(real);
+			};
+			check(commonDir, "common");
+			check(gitDir, "worktree");
+		}
+		return [...result];
+	}
+
+	private resolveGitMetadataPair(workingDirectory: string): {
+		gitDir: string | null;
+		commonDir: string | null;
+	} {
+		const revParse = (flag: "--git-dir" | "--git-common-dir") => {
+			try {
+				const output = execSync(`git rev-parse ${flag}`, {
+					cwd: workingDirectory,
+					encoding: "utf8",
+					stdio: "pipe",
+				}).trim();
+				return output ? pathResolve(workingDirectory, output) : null;
+			} catch {
+				return null;
+			}
+		};
+		return {
+			gitDir: revParse("--git-dir"),
+			commonDir: revParse("--git-common-dir"),
+		};
 	}
 
 	/**

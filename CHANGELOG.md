@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Sandboxed sessions can now run `git add`/`commit` inside their worktree again: the repository's shared `.git` directory is made writable (instead of read-only) in the sandbox, but only after checking that it really lives inside the configured repository's own `.git`.
+
 ## [0.2.74] - 2026-10-20
 
 ### Added
