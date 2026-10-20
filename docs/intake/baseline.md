@@ -1,6 +1,6 @@
 # Baseline — upstream Cyrus before fork changes
 
-Recorded 2026-10-21 on the developer's laptop (macOS, Node v24.0.0, pnpm 10.33.1 per `packageManager`).
+Recorded 2026-10-21 on the developer's laptop (macOS, Node v24.0.0, pnpm 10.33.1 per `packageManager`). Node v24.0.0 predates the 24.x LTS line (LTS from 24.11); the VM pins an actual 24.x LTS release, recorded in Phase 1.
 
 - Upstream: `cyrusagents/cyrus` at `632128f32a817dd626c2d094c2b6a357afb48522` ("chore: release v0.2.74 (CYPACK-1592) (#1548)"), npm `cyrus-ai@0.2.74`.
 - Branch: `feat/telegram-email-intake`, cut from that commit.
@@ -10,7 +10,7 @@ Recorded 2026-10-21 on the developer's laptop (macOS, Node v24.0.0, pnpm 10.33.1
 | `pnpm install --frozen-lockfile` | pass |
 | `pnpm build` | pass |
 | `pnpm typecheck` | pass |
-| `pnpm lint` (`biome check`) | pass (2 pre-existing warnings, "Unexpected template string placeholder") |
+| `pnpm lint` (`biome check`) | pass — "Checked 525 files … Found 14 warnings", all pre-existing: 11× `complexity/useOptionalChain`, 2× `suspicious/noTemplateCurlyInString` (`apps/cli/test-release.test.ts`), 1× `complexity/noStaticOnlyClass` (`packages/core/src/security/WebhookIpValidator.ts`) |
 | `pnpm -r test:run` (clean env) | pass — 0 failures |
 
 Test counts (clean env):
