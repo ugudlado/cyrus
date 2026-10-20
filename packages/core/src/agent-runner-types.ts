@@ -452,6 +452,13 @@ export type JsonObject = { [key: string]: JsonValue };
  * ```
  */
 export interface AgentRunnerConfig {
+	/**
+	 * Untrusted-worktree mode (`CYRUS_UNTRUSTED_WORKTREE=1`). The Claude runner
+	 * then ignores everything a session can write into its own worktree as
+	 * configuration: `<worktree>/.env`, `<worktree>/.mcp.json`, and all
+	 * file-based settings sources (`settingSources: []`).
+	 */
+	untrustedWorktree?: boolean;
 	/** Working directory for the agent session */
 	workingDirectory?: string;
 	/** List of allowed tool names (e.g., ["Read", "Edit", "Bash"]) */

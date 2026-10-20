@@ -195,6 +195,7 @@ import { LinearActivitySink } from "./sinks/LinearActivitySink.js";
 import { ToolPermissionResolver } from "./ToolPermissionResolver.js";
 import type { AgentSessionData, EdgeWorkerEvents } from "./types.js";
 import { UserAccessControl } from "./UserAccessControl.js";
+import { isUntrustedWorktreeEnabled } from "./untrustedWorktree.js";
 import { ZulipChatAdapter } from "./ZulipChatAdapter.js";
 
 export declare interface EdgeWorker {
@@ -244,6 +245,7 @@ export class EdgeWorker extends EventEmitter {
 	private persistenceManager: PersistenceManager;
 	private sharedApplicationServer: SharedApplicationServer;
 	private cyrusHome: string;
+	private untrustedWorktree: boolean;
 	/** Per-org GitHub App installation tokens pushed by cyrus-hosted (lazy file-backed reads) */
 	private githubTokenStore: GitHubTokenStore;
 	private globalSessionRegistry: GlobalSessionRegistry; // Centralized session storage across all repositories
@@ -451,7 +453,16 @@ export class EdgeWorker extends EventEmitter {
 			},
 		};
 		this.repositoryRouter = new RepositoryRouter(repositoryRouterDeps);
-		this.gitService = new GitService({ cyrusHome: this.cyrusHome });
+		this.untrustedWorktree = isUntrustedWorktreeEnabled();
+		if (this.untrustedWorktree) {
+			this.logger.info(
+				"Untrusted-worktree mode enabled (CYRUS_UNTRUSTED_WORKTREE): repo hook scripts, worktree .env/.mcp.json and file-based Claude settings are ignored",
+			);
+		}
+		this.gitService = new GitService({
+			cyrusHome: this.cyrusHome,
+			untrustedWorktree: this.untrustedWorktree,
+		});
 
 		// Initialize AskUserQuestion handler for elicitation via Linear select signal
 		this.askUserQuestionHandler = new AskUserQuestionHandler({
@@ -616,6 +627,7 @@ export class EdgeWorker extends EventEmitter {
 			this.toolPermissionResolver,
 			this.mcpConfigService,
 			this.runnerSelectionService,
+			{ untrustedWorktree: this.untrustedWorktree },
 		);
 		this.activityPoster = new ActivityPoster(
 			this.issueTrackers,
@@ -4481,18 +4493,7 @@ ${taskSection}`;
 		// Write Claude settings to disable co-authored-by attribution in the workspace.
 		// This uses the SDK's "local" settings source (loaded via settingSources: ["user", "project", "local"])
 		// to ensure Cyrus sessions don't add "Co-Authored-By: Claude" trailers to git commits.
-		const claudeSettingsDir = join(workspace.path, ".claude");
-		await mkdir(claudeSettingsDir, { recursive: true });
-		await writeFile(
-			join(claudeSettingsDir, "settings.local.json"),
-			JSON.stringify(
-				{
-					includeCoAuthoredBy: false,
-				},
-				null,
-				"\t",
-			),
-		);
+		await this.writeWorkspaceClaudeSettings(workspace.path);
 
 		// Build allowed directories list - always include attachments directory
 		// Include repository paths from all repositories
@@ -6848,6 +6849,32 @@ ${input.userComment}
 	 * falling back to "claude".
 	 */
 	/**
+	 * Write the worktree's `.claude/settings.local.json` (disables the
+	 * co-authored-by trailer). Skipped in untrusted-worktree mode: no file inside
+	 * the worktree is a settings source there (`settingSources` is `[]`), and the
+	 * attribution setting lives in the managed settings instead.
+	 */
+	private async writeWorkspaceClaudeSettings(
+		workspacePath: string,
+	): Promise<void> {
+		if (this.untrustedWorktree) {
+			return;
+		}
+		const claudeSettingsDir = join(workspacePath, ".claude");
+		await mkdir(claudeSettingsDir, { recursive: true });
+		await writeFile(
+			join(claudeSettingsDir, "settings.local.json"),
+			JSON.stringify(
+				{
+					includeCoAuthoredBy: false,
+				},
+				null,
+				"\t",
+			),
+		);
+	}
+
+	/**
 	 * Git metadata dirs (common `.git` + worktree gitdir) the sandbox may write
 	 * for this session's worktree(s), validated to lie inside each repository's
 	 * own `.git` (see GitService.getWritableGitMetadataDirectories).
@@ -7303,7 +7330,9 @@ ${input.userComment}
 							...(Object.keys(mcpServers).length > 0 && { mcpServers }),
 							...(allowedTools.length > 0 && { allowedTools }),
 							...(disallowedTools.length > 0 && { disallowedTools }),
-							settingSources: ["user", "project", "local"],
+							settingSources: this.untrustedWorktree
+								? []
+								: ["user", "project", "local"],
 							strictMcpConfig: this.config.strictMcpConfig ?? true,
 							// CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is intentionally not set here;
 							// see CYPACK-1108 and ClaudeRunner.start() for context.

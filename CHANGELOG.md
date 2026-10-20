@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- New opt-in "untrusted worktree" mode (set `CYRUS_UNTRUSTED_WORKTREE=1`) for hardened installs where sessions may be steered by hostile text. When on, Cyrus no longer trusts files a session can write into its own worktree: the repository's `cyrus-setup.sh` / `cyrus-teardown.sh` are not run, the worktree `.env` and `.mcp.json` are not loaded, Claude's file-based settings (user, project, local) are not read, and Cyrus stops writing `.claude/settings.local.json` into the worktree. Off by default; behaviour is unchanged unless you set it. Note that repo `CLAUDE.md`, skills and slash commands are not loaded in this mode.
+
 ### Fixed
 - Sandboxed sessions can now run `git add`/`commit` inside their worktree again: the repository's shared `.git` directory is made writable (instead of read-only) in the sandbox, but only after checking that it really lives inside the configured repository's own `.git`.
 

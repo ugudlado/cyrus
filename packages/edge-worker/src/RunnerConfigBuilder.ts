@@ -239,12 +239,15 @@ export class RunnerConfigBuilder {
 	private chatToolResolver: IChatToolResolver;
 	private mcpConfigProvider: IMcpConfigProvider;
 	private runnerSelector: IRunnerSelector;
+	private untrustedWorktree: boolean;
 
 	constructor(
 		chatToolResolver: IChatToolResolver,
 		mcpConfigProvider: IMcpConfigProvider,
 		runnerSelector: IRunnerSelector,
+		options?: { untrustedWorktree?: boolean },
 	) {
+		this.untrustedWorktree = options?.untrustedWorktree ?? false;
 		this.chatToolResolver = chatToolResolver;
 		this.mcpConfigProvider = mcpConfigProvider;
 		this.runnerSelector = runnerSelector;
@@ -311,6 +314,7 @@ export class RunnerConfigBuilder {
 		);
 
 		return {
+			...(this.untrustedWorktree && { untrustedWorktree: true }),
 			runnerType,
 			workingDirectory: input.workspacePath,
 			allowedTools,
@@ -465,6 +469,7 @@ export class RunnerConfigBuilder {
 		).filter((p): p is string => typeof p === "string" && p !== cwd);
 
 		const config: AgentRunnerConfig & Record<string, unknown> = {
+			...(this.untrustedWorktree && { untrustedWorktree: true }),
 			workingDirectory: cwd,
 			allowedTools: input.allowedTools,
 			disallowedTools: input.disallowedTools,

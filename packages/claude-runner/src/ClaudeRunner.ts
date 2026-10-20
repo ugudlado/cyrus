@@ -492,8 +492,15 @@ export class ClaudeRunner extends EventEmitter implements IAgentRunner {
 
 		// Load environment variables from repository .env file
 		// This must happen BEFORE MCP config processing so the SDK can expand ${VAR} references
-		if (this.config.workingDirectory) {
+		// Skipped in untrusted-worktree mode: the file is session-writable and
+		// could override security-relevant env (e.g. CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).
+		if (this.config.workingDirectory && !this.config.untrustedWorktree) {
 			this.loadRepositoryEnv(this.config.workingDirectory);
+		} else if (this.config.untrustedWorktree) {
+			this.repositoryEnv = {};
+			this.logger.info(
+				"Untrusted-worktree mode: not loading the worktree .env or .mcp.json",
+			);
 		}
 
 		// Set up logging (initial setup without session ID)
@@ -580,7 +587,7 @@ export class ClaudeRunner extends EventEmitter implements IAgentRunner {
 			const configPaths: string[] = [];
 
 			// Auto-detect .mcp.json in working directory (base config)
-			if (this.config.workingDirectory) {
+			if (this.config.workingDirectory && !this.config.untrustedWorktree) {
 				const autoMcpPath = join(this.config.workingDirectory, ".mcp.json");
 				if (existsSync(autoMcpPath)) {
 					try {
@@ -668,7 +675,12 @@ export class ClaudeRunner extends EventEmitter implements IAgentRunner {
 					// load file based settings, to maintain more backwards compatibility,
 					// particularly with CLAUDE.md files, settings files, and custom slash commands,
 					// see: https://docs.claude.com/en/docs/claude-code/sdk/migration-guide#settings-sources-no-longer-loaded-by-default
-					settingSources: ["user", "project", "local"],
+					// Untrusted-worktree mode loads no file-based settings at all, so no
+					// session-writable file can change auth, env or hooks. Managed
+					// policy settings are still read by the CLI regardless.
+					settingSources: this.config.untrustedWorktree
+						? []
+						: ["user", "project", "local"],
 					env: {
 						...buildBaseSessionEnv(),
 						// CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is intentionally NOT set while

@@ -39,6 +39,13 @@ export interface CreateGitWorktreeOptions {
 
 export interface GitServiceOptions {
 	cyrusHome?: string;
+	/**
+	 * Untrusted-worktree mode: never run the worktree's `cyrus-setup.*` /
+	 * `cyrus-teardown.*` hook scripts (they are session-writable and run
+	 * unsandboxed with the Cyrus process env). The admin-configured global setup
+	 * script is unaffected.
+	 */
+	untrustedWorktree?: boolean;
 }
 
 export interface DeleteWorktreeOptions {
@@ -216,11 +223,13 @@ export class GitService {
 	private logger: ILogger;
 	private worktreeIncludeService: WorktreeIncludeService;
 	private cyrusHome: string;
+	private untrustedWorktree: boolean;
 
 	constructor(options?: GitServiceOptions, logger?: ILogger) {
 		this.logger = logger ?? createLogger({ component: "GitService" });
 		this.worktreeIncludeService = new WorktreeIncludeService(this.logger);
 		this.cyrusHome = options?.cyrusHome ?? join(homedir(), ".cyrus");
+		this.untrustedWorktree = options?.untrustedWorktree ?? false;
 	}
 
 	/**
@@ -1362,6 +1371,12 @@ export class GitService {
 		issueIdentifier?: string;
 		onRepoSetupHookEvent?: RepoSetupHookEventHandler;
 	}): Promise<void> {
+		if (this.untrustedWorktree) {
+			this.logger.info(
+				`Untrusted-worktree mode: skipping repo ${opts.hook} hook scripts in ${opts.workspacePath}`,
+			);
+			return;
+		}
 		const isWindows = process.platform === "win32";
 		const candidates = [
 			{ file: `cyrus-${opts.hook}.sh`, platform: "unix" as const },

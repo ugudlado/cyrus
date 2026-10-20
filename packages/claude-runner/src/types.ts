@@ -27,6 +27,11 @@ export type { OnAskUserQuestion } from "cyrus-core";
 export type OutputFormatConfig = OutputFormat;
 
 export interface ClaudeRunnerConfig {
+	/**
+	 * Untrusted-worktree mode (`CYRUS_UNTRUSTED_WORKTREE=1`): do not load
+	 * `<worktree>/.env` or `<worktree>/.mcp.json`, and pass `settingSources: []`.
+	 */
+	untrustedWorktree?: boolean;
 	workingDirectory?: string;
 	allowedTools?: string[];
 	disallowedTools?: string[];

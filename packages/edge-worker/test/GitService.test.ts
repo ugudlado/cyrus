@@ -2057,3 +2057,81 @@ describe("GitService", () => {
 		});
 	});
 });
+
+describe("GitService untrusted-worktree mode (hook scripts)", () => {
+	const silentLog: any = {
+		debug: vi.fn(),
+		info: vi.fn(),
+		warn: vi.fn(),
+		error: vi.fn(),
+		success: vi.fn(),
+	};
+	const hookFs = () => {
+		mockExistsSync.mockImplementation((path: any) => {
+			const p = String(path);
+			return (
+				p === "/home/user/.cyrus/worktrees/DEF-123" ||
+				p === "/home/user/.cyrus/worktrees/DEF-123/cyrus-teardown.sh" ||
+				p === "/home/user/.cyrus/worktrees/DEF-123/cyrus-setup.sh"
+			);
+		});
+		mockStatSync.mockImplementation(
+			() => ({ mode: 0o755, isFile: () => false }) as any,
+		);
+		mockExecSync.mockReturnValue(Buffer.from(""));
+	};
+	const repo: any = {
+		id: "a",
+		name: "repo-a",
+		repositoryPath: "/home/user/repos/repo-a",
+		workspaceBaseDir: "/home/user/.cyrus/worktrees",
+	};
+	const ranHook = () =>
+		mockExecSync.mock.calls.some((c) =>
+			/cyrus-(setup|teardown)/.test(String(c[0])),
+		);
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		hookFs();
+	});
+
+	it("runs cyrus-teardown.sh when the flag is off", async () => {
+		const svc = new GitService({ cyrusHome: "/home/user/.cyrus" }, silentLog);
+		await svc.deleteWorktree("DEF-123", { repositories: [repo] });
+		expect(ranHook()).toBe(true);
+	});
+
+	it("does not run cyrus-teardown.sh when the flag is on, but still removes the worktree", async () => {
+		const svc = new GitService(
+			{ cyrusHome: "/home/user/.cyrus", untrustedWorktree: true },
+			silentLog,
+		);
+		await svc.deleteWorktree("DEF-123", { repositories: [repo] });
+		expect(ranHook()).toBe(false);
+		expect(mockRmSync).toHaveBeenCalled();
+	});
+
+	it("does not run cyrus-setup.sh when the flag is on", async () => {
+		const svc = new GitService(
+			{ cyrusHome: "/home/user/.cyrus", untrustedWorktree: true },
+			silentLog,
+		);
+		await (svc as any).runRepoSetupScript(
+			"/home/user/.cyrus/worktrees/DEF-123",
+			{ id: "i", identifier: "DEF-123", title: "t" },
+			"repo-a",
+		);
+		expect(ranHook()).toBe(false);
+	});
+
+	it("runs cyrus-setup.sh when the flag is off", async () => {
+		const svc = new GitService({ cyrusHome: "/home/user/.cyrus" }, silentLog);
+		await (svc as any).runRepoSetupScript(
+			"/home/user/.cyrus/worktrees/DEF-123",
+			{ id: "i", identifier: "DEF-123", title: "t" },
+			"repo-a",
+		);
+		expect(ranHook()).toBe(true);
+	});
+});
