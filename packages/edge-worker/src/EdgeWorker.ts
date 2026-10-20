@@ -54,6 +54,7 @@ import type {
 	Webhook,
 	WebhookAgentSession,
 	WebhookIssue,
+	Workspace,
 } from "cyrus-core";
 import {
 	CLIIssueTrackerService,
@@ -4502,7 +4503,7 @@ ${taskSection}`;
 			...new Set([
 				attachmentsDir,
 				...allRepoPaths,
-				...this.gitService.getGitMetadataDirectoriesForWorkspace(workspace),
+				...this.getValidatedGitMetadataDirectories(workspace, repositories[0]),
 			]),
 		];
 
@@ -6844,11 +6845,6 @@ ${input.userComment}
 	}
 
 	/**
-	 * Resolve the default runner type for SimpleRunner (classification) use.
-	 * Uses config.defaultRunner if set, otherwise auto-detects from API keys,
-	 * falling back to "claude".
-	 */
-	/**
 	 * Write the worktree's `.claude/settings.local.json` (disables the
 	 * co-authored-by trailer). Skipped in untrusted-worktree mode: no file inside
 	 * the worktree is a settings source there (`settingSources` is `[]`), and the
@@ -6875,15 +6871,17 @@ ${input.userComment}
 	}
 
 	/**
-	 * Git metadata dirs (common `.git` + worktree gitdir) the sandbox may write
-	 * for this session's worktree(s), validated to lie inside each repository's
-	 * own `.git` (see GitService.getWritableGitMetadataDirectories).
+	 * The validated common `.git` directory (one per repository in the
+	 * workspace) for this workspace's worktree(s). Used both as a sandbox write
+	 * grant and for the tool-permission layer's `Read` grants; each value is
+	 * anchored on the configured repository path (see
+	 * GitService.getWritableGitMetadataDirectories). The worktree's own gitdir
+	 * lives inside the common dir, so it is covered.
 	 */
 	private getValidatedGitMetadataDirectories(
-		session: CyrusAgentSession,
-		repository: RepositoryConfig,
+		workspace: Workspace,
+		fallbackRepository?: RepositoryConfig,
 	): string[] {
-		const workspace = session.workspace;
 		const targets: Array<{ workingDirectory: string; repositoryPath: string }> =
 			[];
 		const repoPaths = workspace.repoPaths;
@@ -6895,12 +6893,16 @@ ${input.userComment}
 						workingDirectory,
 						repositoryPath: repo.repositoryPath,
 					});
+				} else {
+					this.logger.debug(
+						`No configured repository ${repoId} for workspace ${workspace.path}; granting no git metadata dir for ${workingDirectory}`,
+					);
 				}
 			}
-		} else {
+		} else if (fallbackRepository) {
 			targets.push({
 				workingDirectory: workspace.path,
-				repositoryPath: repository.repositoryPath,
+				repositoryPath: fallbackRepository.repositoryPath,
 			});
 		}
 		return this.gitService.getWritableGitMetadataDirectories(targets);
@@ -6959,7 +6961,7 @@ ${input.userComment}
 			allowedTools,
 			allowedDirectories,
 			gitMetadataDirectories: this.getValidatedGitMetadataDirectories(
-				session,
+				session.workspace,
 				repository,
 			),
 			disallowedTools,
@@ -7751,8 +7753,9 @@ ${input.userComment}
 				attachmentsDir,
 				repository.repositoryPath,
 				...additionalAllowedDirectories,
-				...this.gitService.getGitMetadataDirectoriesForWorkspace(
+				...this.getValidatedGitMetadataDirectories(
 					session.workspace,
+					repository,
 				),
 			]),
 		];

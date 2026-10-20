@@ -8,7 +8,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GitService } from "../src/GitService.js";
 
@@ -53,50 +53,40 @@ describe("GitService.getWritableGitMetadataDirectories", () => {
 
 	const targets = () => [{ workingDirectory: worktree, repositoryPath: repo }];
 
-	it("returns the common .git and the worktree gitdir for a healthy linked worktree", () => {
+	it("returns only the common .git for a healthy linked worktree (never the worktrees/<n> gitdir)", () => {
 		const result = service.getWritableGitMetadataDirectories(targets());
-		expect(new Set(result)).toEqual(
-			new Set([join(repo, ".git"), join(repo, ".git", "worktrees", "wt")]),
-		);
+		expect(result).toEqual([join(repo, ".git")]);
 		expect(warn).not.toHaveBeenCalled();
 	});
 
-	it("rejects a commondir rewritten to point outside the repo", () => {
+	it("never returns a .git/worktrees path, even when the entry is replaced by a symlink", () => {
+		const wtEntry = join(repo, ".git", "worktrees", "wt");
+		rmSync(wtEntry, { recursive: true, force: true });
+		symlinkSync(outside, wtEntry);
+		const result = service.getWritableGitMetadataDirectories(targets());
+		expect(result.some((d) => d.includes(`${sep}worktrees`))).toBe(false);
+		expect(result).not.toContain(outside);
+	});
+
+	it("rejects a commondir rewritten to point at a real repo outside", () => {
+		// Make `outside` a genuine git dir so rev-parse really reports it.
+		git(outside, "init -q --bare .");
 		writeFileSync(
 			join(repo, ".git", "worktrees", "wt", "commondir"),
 			`${outside}\n`,
 		);
+		expect(git(worktree, "rev-parse --git-common-dir").trim()).toBe(outside);
 		const result = service.getWritableGitMetadataDirectories(targets());
-		expect(result).not.toContain(outside);
-		expect(result.every((d) => d.startsWith(join(repo, ".git")))).toBe(true);
+		expect(result).toEqual([]);
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining("outside"));
 	});
 
 	it("rejects a worktree .git file whose gitdir points outside the repo", () => {
+		git(outside, "init -q --bare .");
 		writeFileSync(join(worktree, ".git"), `gitdir: ${outside}\n`);
 		const result = service.getWritableGitMetadataDirectories(targets());
 		expect(result).not.toContain(outside);
 		expect(result).toEqual([]);
-	});
-
-	it("rejects a gitdir that is inside .git but not under worktrees/", () => {
-		mkdirSync(join(repo, ".git", "hooks-evil"));
-		writeFileSync(
-			join(worktree, ".git"),
-			`gitdir: ${join(repo, ".git", "hooks-evil")}\n`,
-		);
-		const result = service.getWritableGitMetadataDirectories(targets());
-		expect(result).not.toContain(join(repo, ".git", "hooks-evil"));
-	});
-
-	it("rejects a symlink inside .git/worktrees that escapes the repo", () => {
-		symlinkSync(outside, join(repo, ".git", "worktrees", "escape"));
-		writeFileSync(
-			join(worktree, ".git"),
-			`gitdir: ${join(repo, ".git", "worktrees", "escape")}\n`,
-		);
-		const result = service.getWritableGitMetadataDirectories(targets());
-		expect(result).not.toContain(outside);
-		expect(result).not.toContain(join(repo, ".git", "worktrees", "escape"));
 	});
 
 	it("validates each repo of a multi-repo workspace against its own .git", () => {
@@ -115,9 +105,7 @@ describe("GitService.getWritableGitMetadataDirectories", () => {
 			{ workingDirectory: worktree, repositoryPath: repoB },
 			{ workingDirectory: worktreeB, repositoryPath: repoB },
 		]);
-		expect(new Set(result)).toEqual(
-			new Set([join(repoB, ".git"), join(repoB, ".git", "worktrees", "wt-b")]),
-		);
+		expect(result).toEqual([join(repoB, ".git")]);
 	});
 
 	it("skips a repository whose .git cannot be resolved", () => {

@@ -9,7 +9,7 @@ import {
 	statSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join, resolve as pathResolve, sep } from "node:path";
+import { basename, join, resolve as pathResolve } from "node:path";
 
 import type {
 	BaseBranchResolution,
@@ -344,17 +344,22 @@ export class GitService {
 	}
 
 	/**
-	 * Resolve the git metadata directories a sandboxed session may be granted
-	 * WRITE access to, with containment validation.
+	 * Resolve the git metadata directory a sandboxed session may be granted
+	 * WRITE access to (and that the tool-permission layer may `Read`), with
+	 * containment validation.
 	 *
-	 * The raw values behind `git rev-parse --git-dir/--git-common-dir` come from
-	 * files inside the worktree (`<worktree>/.git`, `worktrees/<n>/commondir`)
-	 * that a session can rewrite. A hostile session could point them at, say,
-	 * `~/.cyrus` and have the next session's sandbox grant write access there.
-	 * So each directory is `realpath`ed and kept only if it lies inside the
-	 * owning repository's own `.git`: the common dir must be exactly
-	 * `<repositoryPath>/.git`, and the per-worktree gitdir must be inside
-	 * `<repositoryPath>/.git/worktrees/`. Anything else is skipped with a warning.
+	 * The raw value behind `git rev-parse --git-common-dir` comes from files
+	 * inside the worktree (`<worktree>/.git`, `worktrees/<n>/commondir`) that a
+	 * session can rewrite. A hostile session could point it at, say, `~/.cyrus`.
+	 * So the grant is anchored on the configured repository: the only directory
+	 * ever returned is `realpath(<repositoryPath>/.git)`, and only when the
+	 * worktree's reported common dir resolves to exactly that path. Otherwise
+	 * nothing is granted for that worktree and a warning is logged.
+	 *
+	 * The per-worktree gitdir (`.git/worktrees/<n>`) is deliberately NOT
+	 * returned: it lies inside the common dir (already covered), and because the
+	 * session can write the common dir it could swap that entry for a symlink to
+	 * an arbitrary host path that the sandbox bind would then follow.
 	 *
 	 * @param targets One entry per git worktree in the workspace: the worktree
 	 *   directory and the configured repository path it must belong to.
@@ -366,45 +371,31 @@ export class GitService {
 		for (const { workingDirectory, repositoryPath } of targets) {
 			let commonRoot: string;
 			try {
-				commonRoot = realpathSync(join(repositoryPath, ".git"));
+				commonRoot = realpathSync.native(join(repositoryPath, ".git"));
 			} catch {
 				this.logger.warn(
-					`Skipping git metadata dirs for ${workingDirectory}: ${repositoryPath}/.git not resolvable`,
+					`Skipping git metadata dir for ${workingDirectory}: ${repositoryPath}/.git not resolvable`,
 				);
 				continue;
 			}
-			const worktreesRoot = join(commonRoot, "worktrees");
-			const { gitDir, commonDir } =
-				this.resolveGitMetadataPair(workingDirectory);
-
-			const check = (
-				candidate: string | null,
-				kind: "common" | "worktree",
-			): void => {
-				if (!candidate) return;
-				let real: string;
-				try {
-					real = realpathSync(candidate);
-				} catch {
-					this.logger.warn(
-						`Skipping git ${kind} dir ${candidate}: not resolvable`,
-					);
-					return;
-				}
-				const ok =
-					kind === "common"
-						? real === commonRoot
-						: real === commonRoot || real.startsWith(worktreesRoot + sep);
-				if (!ok) {
-					this.logger.warn(
-						`Skipping git ${kind} dir ${candidate} (resolves to ${real}): outside ${commonRoot}`,
-					);
-					return;
-				}
-				result.add(real);
-			};
-			check(commonDir, "common");
-			check(gitDir, "worktree");
+			const { commonDir } = this.resolveGitMetadataPair(workingDirectory);
+			if (!commonDir) continue;
+			let real: string;
+			try {
+				real = realpathSync.native(commonDir);
+			} catch {
+				this.logger.warn(
+					`Skipping git common dir ${commonDir}: not resolvable (outside check failed)`,
+				);
+				continue;
+			}
+			if (real !== commonRoot) {
+				this.logger.warn(
+					`Skipping git common dir ${commonDir} (resolves to ${real}): outside ${commonRoot}`,
+				);
+				continue;
+			}
+			result.add(commonRoot);
 		}
 		return [...result];
 	}

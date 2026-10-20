@@ -185,6 +185,8 @@ export class SkillsPluginResolver {
 
 		// Union repo-local skills shipped in each participating repo's working
 		// tree. No scope.json filtering — presence in the repo is the scope.
+		// Note: with untrusted-worktree mode on (settingSources: []) these names
+		// are still enumerated here, but the SDK does not load worktree skills.
 		for (const repoPath of context?.repoPaths ?? []) {
 			const skillsDir = join(repoPath, ".claude", "skills");
 			const entries = await this.readSkillDirEntries(skillsDir);

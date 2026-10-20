@@ -67,24 +67,17 @@ function build(opts: {
 }
 
 describe("RunnerConfigBuilder sandbox git metadata", () => {
-	it("makes the worktree and git metadata dirs writable, and keeps them out of allowRead", () => {
+	it("makes the worktree and the common .git writable, and keeps them out of allowRead", () => {
 		const config = build({
 			sandboxEnabled: true,
-			gitMetadataDirectories: [
-				"/repos/repo-a/.git",
-				"/repos/repo-a/.git/worktrees/ABC-1",
-			],
+			gitMetadataDirectories: ["/repos/repo-a/.git"],
 		});
 
 		expect(config.sandbox.filesystem).toEqual({
 			// worktree + attachments dir only: no repo path, no git metadata dirs
 			allowRead: [".", "/home/me/.cyrus/ABC-1/attachments"],
 			denyRead: ["~/"],
-			allowWrite: [
-				"/wt/ABC-1",
-				"/repos/repo-a/.git",
-				"/repos/repo-a/.git/worktrees/ABC-1",
-			],
+			allowWrite: ["/wt/ABC-1", "/repos/repo-a/.git"],
 		});
 	});
 
