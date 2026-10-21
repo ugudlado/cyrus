@@ -600,6 +600,97 @@ describe("GitService", () => {
 		});
 	});
 
+	describe("createGitWorktree - existing remote branch", () => {
+		const branch = "cyrustester/eng-97-fix-shader";
+		const mockGit = (opts: {
+			local?: string;
+			remote?: string;
+			localAncestorOfRemote?: boolean;
+			remoteAncestorOfLocal?: boolean;
+		}) => {
+			mockExecSync.mockImplementation((cmd: any) => {
+				const c = String(cmd);
+				if (c === "git rev-parse --git-dir") return Buffer.from(".git\n");
+				if (c === "git worktree list --porcelain") return "";
+				if (
+					c === `git rev-parse --verify "${branch}"` ||
+					c === `git rev-parse --verify "refs/heads/${branch}"`
+				) {
+					if (opts.local) return Buffer.from(`${opts.local}\n`);
+					throw new Error("no local branch");
+				}
+				if (c === `git rev-parse --verify "refs/remotes/origin/${branch}"`) {
+					if (opts.remote) return Buffer.from(`${opts.remote}\n`);
+					throw new Error("no remote branch");
+				}
+				if (c.startsWith("git merge-base --is-ancestor")) {
+					const ok = c.includes(`"${opts.local}" "${opts.remote}"`)
+						? opts.localAncestorOfRemote
+						: opts.remoteAncestorOfLocal;
+					if (ok) return Buffer.from("");
+					throw new Error("not ancestor");
+				}
+				if (c.includes("git ls-remote"))
+					return Buffer.from("abc123 refs/heads/main\n");
+				return Buffer.from("");
+			});
+		};
+		const cmds = () => mockExecSync.mock.calls.map((c) => String(c[0]));
+
+		it("creates the worktree tracking origin/<branch> when only the remote has it", async () => {
+			mockGit({ remote: "rrr111" });
+			await gitService.createGitWorktree(makeIssue(), [makeRepository()]);
+			const add = cmds().find((c) => c.includes("git worktree add"));
+			expect(add).toContain(`--track -b "${branch}"`);
+			expect(add).toContain(`"origin/${branch}"`);
+		});
+
+		it("fast-forwards an existing local branch that is behind the remote", async () => {
+			mockGit({
+				local: "lll111",
+				remote: "rrr111",
+				localAncestorOfRemote: true,
+			});
+			await gitService.createGitWorktree(makeIssue(), [makeRepository()]);
+			expect(cmds()).toContain(
+				`git update-ref "refs/heads/${branch}" "rrr111" "lll111"`,
+			);
+			expect(cmds().find((c) => c.includes("git worktree add"))).toContain(
+				`"${branch}"`,
+			);
+		});
+
+		it("keeps local commits and warns when the local branch diverged", async () => {
+			mockGit({ local: "lll111", remote: "rrr111" });
+			await gitService.createGitWorktree(makeIssue(), [makeRepository()]);
+			expect(cmds().some((c) => c.startsWith("git update-ref"))).toBe(false);
+			expect(mockLogger.warn).toHaveBeenCalledWith(
+				expect.stringContaining("diverged"),
+			);
+		});
+
+		it("leaves a local branch that is ahead of the remote alone", async () => {
+			mockGit({
+				local: "lll111",
+				remote: "rrr111",
+				remoteAncestorOfLocal: true,
+			});
+			await gitService.createGitWorktree(makeIssue(), [makeRepository()]);
+			expect(cmds().some((c) => c.startsWith("git update-ref"))).toBe(false);
+			expect(mockLogger.warn).not.toHaveBeenCalledWith(
+				expect.stringContaining("diverged"),
+			);
+		});
+
+		it("keeps creating from the base branch when no remote branch exists", async () => {
+			mockGit({});
+			await gitService.createGitWorktree(makeIssue(), [makeRepository()]);
+			const add = cmds().find((c) => c.includes("git worktree add"));
+			expect(add).toContain("origin/main");
+			expect(add).not.toContain(`origin/${branch}`);
+		});
+	});
+
 	describe("createGitWorktree - repo setup hook discovery", () => {
 		const setupSuccessfulWorktreeCreate = () => {
 			mockExecSync.mockImplementation((cmd: any) => {

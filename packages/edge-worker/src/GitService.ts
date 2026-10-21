@@ -772,6 +772,56 @@ export class GitService {
 	}
 
 	/**
+	 * Fast-forward a local branch (not checked out anywhere) to the given remote
+	 * SHA if the local tip is a strict ancestor of it. Local-only or diverged
+	 * history is left untouched (diverged logs a warning).
+	 */
+	private fastForwardLocalBranch(
+		repoPath: string,
+		branchName: string,
+		remoteSha: string,
+	): void {
+		try {
+			const localSha = execSync(
+				`git rev-parse --verify "refs/heads/${branchName}"`,
+				{ cwd: repoPath, stdio: "pipe" },
+			)
+				.toString()
+				.trim();
+			if (!localSha || localSha === remoteSha) return;
+			const isAncestor = (a: string, b: string): boolean => {
+				try {
+					execSync(`git merge-base --is-ancestor "${a}" "${b}"`, {
+						cwd: repoPath,
+						stdio: "pipe",
+					});
+					return true;
+				} catch {
+					return false;
+				}
+			};
+			if (isAncestor(localSha, remoteSha)) {
+				execSync(
+					`git update-ref "refs/heads/${branchName}" "${remoteSha}" "${localSha}"`,
+					{ cwd: repoPath, stdio: "pipe" },
+				);
+				this.logger.info(
+					`Fast-forwarded local branch ${branchName} to origin/${branchName}`,
+				);
+			} else if (!isAncestor(remoteSha, localSha)) {
+				this.logger.warn(
+					`Local branch ${branchName} has diverged from origin/${branchName}; keeping local commits`,
+				);
+			}
+		} catch (e) {
+			this.logger.warn(
+				`Could not update local branch ${branchName} from remote:`,
+				(e as Error).message,
+			);
+		}
+	}
+
+	/**
 	 * Create a single git worktree for one repository.
 	 * This is the core worktree creation logic, used by createGitWorktree for both
 	 * single-repo and multi-repo cases.
@@ -919,7 +969,9 @@ export class GitService {
 			this.logger.debug("Fetching latest changes from remote...");
 			let hasRemote = true;
 			try {
-				execSync("git fetch origin", {
+				// --prune drops remote-tracking refs for branches deleted on the remote
+				// (e.g. a merged PR branch), so they are not mistaken for existing ones.
+				execSync("git fetch origin --prune", {
 					cwd: repository.repositoryPath,
 					stdio: "pipe",
 				});
@@ -931,9 +983,31 @@ export class GitService {
 				hasRemote = false;
 			}
 
+			// Does the branch itself already exist on the remote (e.g. a previous
+			// worktree was deleted but its branch was pushed)? Only trust a
+			// non-empty SHA from the remote-tracking ref after the fetch above.
+			let remoteBranchSha = "";
+			if (hasRemote) {
+				try {
+					remoteBranchSha = execSync(
+						`git rev-parse --verify "refs/remotes/origin/${branchName}"`,
+						{ cwd: repository.repositoryPath, stdio: "pipe" },
+					)
+						.toString()
+						.trim();
+				} catch {
+					// No remote branch with this name
+				}
+			}
+
 			// Create the worktree - use determined base branch
 			let worktreeCmd: string;
-			if (createBranch) {
+			if (createBranch && remoteBranchSha) {
+				this.logger.info(
+					`Creating git worktree at ${workspacePath} from existing remote branch origin/${branchName}`,
+				);
+				worktreeCmd = `git worktree add --track -b "${branchName}" "${workspacePath}" "origin/${branchName}"`;
+			} else if (createBranch) {
 				if (hasRemote) {
 					// Check if the base branch exists remotely
 					let useRemoteBranch = false;
@@ -996,7 +1070,16 @@ export class GitService {
 					worktreeCmd = `git worktree add -b "${branchName}" "${workspacePath}" "${baseBranch}"`;
 				}
 			} else {
-				// Branch already exists, just check it out
+				// Branch already exists locally. Fast-forward it to the remote
+				// branch when that is strictly ahead; never discard local commits.
+				if (remoteBranchSha) {
+					this.fastForwardLocalBranch(
+						repository.repositoryPath,
+						branchName,
+						remoteBranchSha,
+					);
+				}
+				// Just check it out
 				this.logger.info(
 					`Creating git worktree at ${workspacePath} with existing branch ${branchName}`,
 				);
