@@ -85,8 +85,11 @@ Determine the platform from the repository context (`<github_url>` or `<gitlab_u
 
 ```bash
 git push -u origin HEAD
-gh pr view --json url,number 2>/dev/null || gh pr create --draft --base [base_branch from context] --title "[descriptive title]" --body "Work in progress"
+pr_url=$(gh pr view --json url,state --jq 'select(.state == "OPEN") | .url' 2>/dev/null)
+if [ -n "$pr_url" ]; then echo "$pr_url"; else gh pr create --draft --base [base_branch from context] --title "[descriptive title]" --body "Work in progress"; fi
 ```
+
+Reuse the branch's PR only if it is still `OPEN`. If the branch's previous PR was merged or closed, create a new PR instead of updating the old one.
 
 ### GitLab (when `<gitlab_url>` is present)
 
