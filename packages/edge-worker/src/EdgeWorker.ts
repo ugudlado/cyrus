@@ -305,6 +305,15 @@ export class EdgeWorker extends EventEmitter {
 	 * Key format: `${createdAt}:${issueId}`
 	 */
 	private processedIssueUpdateKeys = new Set<string>();
+	/**
+	 * Agent session ids whose `AgentSessionEvent/created` webhook has been
+	 * claimed for handling (in flight or already handled). Linear delivers
+	 * webhooks at least once, so a duplicate `created` for the same session
+	 * must not start a second runner. Claimed synchronously before the first
+	 * await; released if handling throws so a redelivery can retry.
+	 * Capped (insertion order) to bound memory.
+	 */
+	private claimedSessionCreatedIds = new Set<string>();
 
 	/**
 	 * Sessions parked due to blocked-by dependencies.
@@ -4535,6 +4544,40 @@ ${taskSection}`;
 	 * @param repos All available repositories for routing
 	 */
 	private async handleAgentSessionCreatedWebhook(
+		webhook: AgentSessionCreatedWebhook,
+		repos: RepositoryConfig[],
+	): Promise<void> {
+		// Idempotency: ignore a duplicate `created` delivery for a session we are
+		// already handling or have already handled. The check-and-claim happens
+		// synchronously (no await before it), so two near-simultaneous deliveries
+		// cannot both pass.
+		const createdSessionId = webhook.agentSession?.id;
+		if (createdSessionId) {
+			if (this.claimedSessionCreatedIds.has(createdSessionId)) {
+				this.logger.info(
+					`Ignoring duplicate agent session created webhook (session ${createdSessionId})`,
+				);
+				return;
+			}
+			this.claimedSessionCreatedIds.add(createdSessionId);
+			if (this.claimedSessionCreatedIds.size > 1000) {
+				const oldest = this.claimedSessionCreatedIds.values().next().value;
+				if (oldest !== undefined) this.claimedSessionCreatedIds.delete(oldest);
+			}
+		}
+
+		try {
+			await this.processAgentSessionCreatedWebhook(webhook, repos);
+		} catch (error) {
+			// Handling failed (possibly before any runner started): allow a redelivery.
+			if (createdSessionId) {
+				this.claimedSessionCreatedIds.delete(createdSessionId);
+			}
+			throw error;
+		}
+	}
+
+	private async processAgentSessionCreatedWebhook(
 		webhook: AgentSessionCreatedWebhook,
 		repos: RepositoryConfig[],
 	): Promise<void> {
