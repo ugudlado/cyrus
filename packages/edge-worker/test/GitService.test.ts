@@ -513,6 +513,93 @@ describe("GitService", () => {
 		});
 	});
 
+	describe("createGitWorktree - upstream tracks the branch's own remote name", () => {
+		const branch = "cyrustester/eng-97-fix-shader";
+		const mockGit = (opts: { branchExists: boolean; remoteBase: boolean }) => {
+			mockExecSync.mockImplementation((cmd: any) => {
+				const cmdStr = String(cmd);
+				if (cmdStr === "git rev-parse --git-dir") {
+					return Buffer.from(".git\n");
+				}
+				if (cmdStr === "git worktree list --porcelain") {
+					return "";
+				}
+				if (cmdStr === `git rev-parse --verify "${branch}"`) {
+					if (opts.branchExists) return Buffer.from("abc123\n");
+					throw new Error("fatal: Needed a single revision");
+				}
+				if (cmdStr.includes("git ls-remote")) {
+					return Buffer.from(opts.remoteBase ? "abc123 refs/heads/main\n" : "");
+				}
+				return Buffer.from("");
+			});
+		};
+		const configCalls = () =>
+			mockExecSync.mock.calls
+				.map((c) => String(c[0]))
+				.filter((c) => c.startsWith("git config"));
+
+		it("sets branch.<name>.remote/merge after a new --track -b worktree", async () => {
+			mockGit({ branchExists: false, remoteBase: true });
+			await gitService.createGitWorktree(makeIssue(), [makeRepository()]);
+			const cmds = mockExecSync.mock.calls.map((c) => String(c[0]));
+			const addIdx = cmds.findIndex((c) => c.includes("git worktree add"));
+			expect(cmds[addIdx]).toContain("--track -b");
+			expect(configCalls()).toEqual([
+				`git config "branch.${branch}.remote" origin`,
+				`git config "branch.${branch}.merge" "refs/heads/${branch}"`,
+			]);
+			expect(cmds.findIndex((c) => c.startsWith("git config"))).toBeGreaterThan(
+				addIdx,
+			);
+		});
+
+		it("sets it for the local-base -b case too", async () => {
+			mockExecSync.mockImplementation((cmd: any) => {
+				const cmdStr = String(cmd);
+				if (cmdStr === "git rev-parse --git-dir") return Buffer.from(".git\n");
+				if (cmdStr === "git worktree list --porcelain") return "";
+				if (cmdStr === `git rev-parse --verify "${branch}"`)
+					throw new Error("no branch");
+				if (cmdStr.includes("git ls-remote")) return Buffer.from("");
+				return Buffer.from("");
+			});
+			await gitService.createGitWorktree(makeIssue(), [makeRepository()]);
+			const cmds = mockExecSync.mock.calls.map((c) => String(c[0]));
+			expect(cmds.find((c) => c.includes("git worktree add"))).not.toContain(
+				"--track",
+			);
+			expect(configCalls()).toHaveLength(2);
+		});
+
+		it("does not touch config for an existing branch", async () => {
+			mockGit({ branchExists: true, remoteBase: true });
+			await gitService.createGitWorktree(makeIssue(), [makeRepository()]);
+			const cmds = mockExecSync.mock.calls.map((c) => String(c[0]));
+			expect(cmds.find((c) => c.includes("git worktree add"))).toBeDefined();
+			expect(configCalls()).toEqual([]);
+		});
+
+		it("still succeeds when setting the upstream fails", async () => {
+			mockExecSync.mockImplementation((cmd: any) => {
+				const cmdStr = String(cmd);
+				if (cmdStr === "git rev-parse --git-dir") return Buffer.from(".git\n");
+				if (cmdStr === "git worktree list --porcelain") return "";
+				if (cmdStr === `git rev-parse --verify "${branch}"`)
+					throw new Error("no branch");
+				if (cmdStr.startsWith("git config")) throw new Error("locked");
+				if (cmdStr.includes("git ls-remote"))
+					return Buffer.from("abc123 refs/heads/main\n");
+				return Buffer.from("");
+			});
+			const result = await gitService.createGitWorktree(makeIssue(), [
+				makeRepository(),
+			]);
+			expect(result.isGitWorktree).toBe(true);
+			expect(mockLogger.warn).toHaveBeenCalled();
+		});
+	});
+
 	describe("createGitWorktree - repo setup hook discovery", () => {
 		const setupSuccessfulWorktreeCreate = () => {
 			mockExecSync.mockImplementation((cmd: any) => {

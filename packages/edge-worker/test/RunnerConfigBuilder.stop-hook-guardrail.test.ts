@@ -250,4 +250,37 @@ describe("inspectGitGuardrail", () => {
 			rmSync(remote, { recursive: true, force: true });
 		}
 	});
+
+	it("branch upstream set to origin/<branch>: counts unpushed before push, 0 after", () => {
+		const remote = mkdtempSync(join(tmpdir(), "cyrus-stop-hook-remote-"));
+		try {
+			execSync(`git init --bare`, { cwd: remote, stdio: "ignore" });
+			git(workdir, "init -b main");
+			git(workdir, `remote add origin ${remote}`);
+			writeFileSync(join(workdir, "README.md"), "hello\n");
+			git(workdir, "add README.md");
+			git(workdir, 'commit -m "init"');
+			git(workdir, "push origin main");
+			git(workdir, "remote set-head origin main");
+
+			// What GitService does for a new branch (sandbox can't write config).
+			git(workdir, "checkout -b feat/x");
+			git(workdir, "config branch.feat/x.remote origin");
+			git(workdir, "config branch.feat/x.merge refs/heads/feat/x");
+			writeFileSync(join(workdir, "feature.txt"), "feature\n");
+			git(workdir, "add feature.txt");
+			git(workdir, 'commit -m "feature"');
+
+			// origin/feat/x missing: @{u} fails, fallback to origin/HEAD counts it.
+			const before = inspectGitGuardrail(workdir, silentLogger);
+			expect(before).toContain("1 commit");
+			expect(before).toContain("not yet on the remote");
+
+			// After a push (no -u) the remote-tracking ref exists at HEAD.
+			git(workdir, "push origin feat/x");
+			expect(inspectGitGuardrail(workdir, silentLogger)).toBeNull();
+		} finally {
+			rmSync(remote, { recursive: true, force: true });
+		}
+	});
 });

@@ -1008,6 +1008,31 @@ export class GitService {
 				stdio: "pipe",
 			});
 
+			// For a NEW branch, point its upstream at its own name on the remote
+			// (not the base branch that --track set). Sandboxed sessions cannot
+			// write .git/config, so they cannot run `git push -u`; doing it here
+			// keeps `@{u}..HEAD` accurate (unresolved until the first push, then 0).
+			if (createBranch) {
+				try {
+					execSync(`git config "branch.${branchName}.remote" origin`, {
+						cwd: repository.repositoryPath,
+						stdio: "pipe",
+					});
+					execSync(
+						`git config "branch.${branchName}.merge" "refs/heads/${branchName}"`,
+						{
+							cwd: repository.repositoryPath,
+							stdio: "pipe",
+						},
+					);
+				} catch (e) {
+					this.logger.warn(
+						`Failed to set upstream for branch ${branchName}:`,
+						(e as Error).message,
+					);
+				}
+			}
+
 			// Copy files specified in .worktreeinclude that are also in .gitignore
 			// This runs before setup scripts so they can access these files
 			await this.worktreeIncludeService.copyIgnoredFiles(
