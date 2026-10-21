@@ -104,6 +104,7 @@ import {
 	GitHubEventTransport,
 	type GitHubPushPayload,
 	type GitHubWebhookEvent,
+	hasCyrusCommentMarker,
 	isCommentOnPullRequest,
 	isIssueCommentPayload,
 	isPullRequestReviewCommentPayload,
@@ -1434,6 +1435,16 @@ export class EdgeWorker extends EventEmitter {
 
 			const isPullRequestReview = isPullRequestReviewPayload(event.payload);
 
+			// Skip comments Cyrus posted itself. The author filter below cannot do
+			// this when Cyrus posts with a human's token, so every comment Cyrus
+			// posts carries a hidden marker. Checked before any mention check.
+			if (hasCyrusCommentMarker(commentBody)) {
+				this.logger.info(
+					`Ignoring Cyrus-authored comment on ${repoFullName}#${prNumber}`,
+				);
+				return;
+			}
+
 			// Skip comments from the bot itself to prevent infinite loops
 			const botUsername = process.env.GITHUB_BOT_USERNAME;
 			if (botUsername && commentAuthor === botUsername) {
@@ -2133,6 +2144,7 @@ ${taskInstructions}
 - You are already checked out on the PR branch \`${branchRef}\`
 - Make changes directly to the code on this branch
 - After making changes, commit and push them to the branch
+- Do not submit GitHub reviews or post PR comments yourself (no \`gh pr review\`, \`gh pr comment\` or \`gh api\` comment calls); Cyrus posts your final response back to the PR
 - Be concise in your responses as they will be posted back to the GitHub PR`;
 	}
 
@@ -2161,6 +2173,7 @@ ${reviewBody}
 - You are already checked out on the PR branch \`${branchRef}\`
 - Address all the reviewer's feedback and make the necessary changes
 - After making changes, commit and push them to the branch
+- Do not submit GitHub reviews or post PR comments yourself (no \`gh pr review\`, \`gh pr comment\` or \`gh api\` comment calls); Cyrus posts your final response back to the PR
 - Respond with a concise summary of the changes you made`
 			: `## Instructions
 - The reviewer has requested changes but did not leave a summary comment
@@ -2168,6 +2181,7 @@ ${reviewBody}
 - You are already checked out on the PR branch \`${branchRef}\`
 - Address all the reviewer's feedback and make the necessary changes
 - After making changes, commit and push them to the branch
+- Do not submit GitHub reviews or post PR comments yourself (no \`gh pr review\`, \`gh pr comment\` or \`gh api\` comment calls); Cyrus posts your final response back to the PR
 - Respond with a concise summary of the changes you made`;
 
 		return `You are working on a GitHub Pull Request that has received a change request review.

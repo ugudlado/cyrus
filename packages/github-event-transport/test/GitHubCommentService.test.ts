@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { GitHubCommentService } from "../src/GitHubCommentService.js";
+import {
+	CYRUS_COMMENT_MARKER,
+	GitHubCommentService,
+	hasCyrusCommentMarker,
+	withCyrusCommentMarker,
+} from "../src/GitHubCommentService.js";
 
 // Mock global fetch
 const mockFetch = vi.fn();
@@ -105,7 +110,9 @@ describe("GitHubCommentService", () => {
 						"Content-Type": "application/json",
 						"X-GitHub-Api-Version": "2022-11-28",
 					},
-					body: JSON.stringify({ body: "Hello from Cyrus!" }),
+					body: JSON.stringify({
+						body: `Hello from Cyrus!\n\n${CYRUS_COMMENT_MARKER}`,
+					}),
 				},
 			);
 
@@ -268,7 +275,9 @@ describe("GitHubCommentService", () => {
 						"Content-Type": "application/json",
 						"X-GitHub-Api-Version": "2022-11-28",
 					},
-					body: JSON.stringify({ body: "Fixed the error handling!" }),
+					body: JSON.stringify({
+						body: `Fixed the error handling!\n\n${CYRUS_COMMENT_MARKER}`,
+					}),
 				},
 			);
 
@@ -295,6 +304,20 @@ describe("GitHubCommentService", () => {
 			).rejects.toThrow(
 				"[GitHubCommentService] Failed to post review comment reply: 404 Not Found",
 			);
+		});
+	});
+
+	describe("self-authored marker", () => {
+		it("appends the hidden marker once", () => {
+			const once = withCyrusCommentMarker("hi");
+			expect(once).toBe(`hi\n\n${CYRUS_COMMENT_MARKER}`);
+			expect(withCyrusCommentMarker(once)).toBe(once);
+		});
+
+		it("detects the marker", () => {
+			expect(hasCyrusCommentMarker(`x ${CYRUS_COMMENT_MARKER}`)).toBe(true);
+			expect(hasCyrusCommentMarker("plain @cyrus please")).toBe(false);
+			expect(hasCyrusCommentMarker(undefined)).toBe(false);
 		});
 	});
 });

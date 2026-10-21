@@ -5,6 +5,33 @@
  * to post replies on PR issue comments and PR review comments.
  */
 
+/**
+ * Hidden HTML marker appended to every comment Cyrus posts, so Cyrus can
+ * recognise (and ignore) its own comments even when it posts with a token
+ * that belongs to a human account and author filtering cannot tell them apart.
+ *
+ * Not to be confused with upstream's `CYRUS_PR_MARKER`
+ * (`<!-- generated-by-cyrus -->`), which marks the *body of a pull request*
+ * Cyrus opened (used by the PR marker hook and skills). This marker is for
+ * comments, replies and acknowledgements, and is what the webhook handler
+ * checks to ignore Cyrus's own comments.
+ */
+export const CYRUS_COMMENT_MARKER = "<!-- cyrus-agent -->";
+
+/** True when the text carries the Cyrus self-authored marker. */
+export function hasCyrusCommentMarker(
+	body: string | null | undefined,
+): boolean {
+	return typeof body === "string" && body.includes(CYRUS_COMMENT_MARKER);
+}
+
+/** Append the marker (once) to a comment body Cyrus is about to post. */
+export function withCyrusCommentMarker(body: string): string {
+	return hasCyrusCommentMarker(body)
+		? body
+		: `${body}\n\n${CYRUS_COMMENT_MARKER}`;
+}
+
 export interface GitHubCommentServiceConfig {
 	/** GitHub API base URL (default: https://api.github.com) */
 	apiBaseUrl?: string;
@@ -98,7 +125,7 @@ export class GitHubCommentService {
 				"Content-Type": "application/json",
 				"X-GitHub-Api-Version": "2022-11-28",
 			},
-			body: JSON.stringify({ body }),
+			body: JSON.stringify({ body: withCyrusCommentMarker(body) }),
 		});
 
 		if (!response.ok) {
@@ -131,7 +158,7 @@ export class GitHubCommentService {
 				"Content-Type": "application/json",
 				"X-GitHub-Api-Version": "2022-11-28",
 			},
-			body: JSON.stringify({ body }),
+			body: JSON.stringify({ body: withCyrusCommentMarker(body) }),
 		});
 
 		if (!response.ok) {

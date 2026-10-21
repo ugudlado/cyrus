@@ -211,6 +211,44 @@ describe("EdgeWorker - PR review trigger gate (CYPACK-1273)", () => {
 		).not.toHaveBeenCalled();
 	});
 
+	it("ignores a review whose body carries the Cyrus marker (self-authored)", async () => {
+		edgeWorker = createWorker(true);
+		const event = createPrReviewEvent();
+		event.payload.review.body = `Received your change request.\n\n<!-- cyrus-agent -->`;
+
+		await (edgeWorker as any).handleGitHubWebhook(event);
+
+		expect((edgeWorker as any).resolveGitHubToken).not.toHaveBeenCalled();
+		expect(mockGitHubCommentService.postIssueComment).not.toHaveBeenCalled();
+		expect(
+			mockAgentSessionManager.createCyrusAgentSession,
+		).not.toHaveBeenCalled();
+	});
+
+	it("ignores a marked @mention comment even when a bot username is configured", async () => {
+		edgeWorker = createWorker(true);
+		process.env.GITHUB_BOT_USERNAME = "cyrusbot";
+		const event = createPrReviewEvent();
+		event.eventType = "issue_comment";
+		event.payload = {
+			action: "created",
+			comment: {
+				id: 1,
+				body: "@cyrusbot done <!-- cyrus-agent -->",
+				user: { login: "human-owner" },
+				html_url: "https://github.com/testorg/my-repo/pull/42#issuecomment-1",
+			},
+			issue: { number: 42, title: "t", pull_request: {} },
+			repository: event.payload.repository,
+			sender: { login: "human-owner" },
+		};
+
+		await (edgeWorker as any).handleGitHubWebhook(event);
+
+		expect((edgeWorker as any).resolveGitHubToken).not.toHaveBeenCalled();
+		expect(mockGitHubCommentService.addReaction).not.toHaveBeenCalled();
+	});
+
 	it("posts an acknowledgement comment when prReviewTrigger is true", async () => {
 		edgeWorker = createWorker(true);
 
@@ -341,5 +379,43 @@ describe("EdgeWorker - PR review trigger gate (CYPACK-1273)", () => {
 
 		await vi.waitFor(() => expect(secondRunner.start).toHaveBeenCalledOnce());
 		expect(firstRunner.completeStream).toHaveBeenCalledOnce();
+	});
+});
+
+describe("GitHub system prompts", () => {
+	const event: any = {
+		eventType: "issue_comment",
+		deliveryId: "d",
+		payload: {
+			action: "created",
+			comment: {
+				id: 1,
+				body: "x",
+				user: { login: "u" },
+				html_url: "https://github.com/o/r/pull/1#c",
+			},
+			issue: { number: 1, title: "t", pull_request: {} },
+			repository: { full_name: "o/r", name: "r", owner: { login: "o" } },
+		},
+	};
+	const proto = (EdgeWorker as any).prototype;
+
+	it("tell the agent not to post reviews or comments itself", () => {
+		const comment = proto.buildGitHubSystemPrompt.call({}, event, "b", "do it");
+		const review = proto.buildGitHubChangeRequestSystemPrompt.call(
+			{},
+			event,
+			"b",
+			"fix it",
+		);
+		const reviewNoBody = proto.buildGitHubChangeRequestSystemPrompt.call(
+			{},
+			event,
+			"b",
+			"",
+		);
+		for (const p of [comment, review, reviewNoBody]) {
+			expect(p).toContain("Do not submit GitHub reviews or post PR comments");
+		}
 	});
 });
