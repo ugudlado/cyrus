@@ -369,7 +369,9 @@ export class LinearMessageTranslator
 	 * Translate IssueStateChangeWebhook (AppUserNotification/issueStatusChanged) to IssueStateChangeMessage.
 	 *
 	 * Linear sends these notifications for terminal state changes (completed/canceled).
-	 * The notification payload does not include state info — only the issue reference.
+	 * The notification payload does not include state info — only the issue reference,
+	 * and Linear also sends it for non-terminal status changes, so the receiver must
+	 * confirm the issue's current state type before tearing anything down.
 	 */
 	private translateIssueStateChange(
 		webhook: IssueStateChangeWebhook,
@@ -407,7 +409,12 @@ export class LinearMessageTranslator
 			};
 		}
 
-		return this.buildTerminalStateMessage(issueData, organizationId, createdAt);
+		return this.buildTerminalStateMessage(
+			issueData,
+			organizationId,
+			createdAt,
+			true,
+		);
 	}
 
 	/**
@@ -418,9 +425,11 @@ export class LinearMessageTranslator
 		issueData: WebhookIssue,
 		organizationId: string,
 		createdAt: Date | string | undefined,
+		isDeleted = false,
 	): TranslationResult {
 		const platformData: LinearIssueStateChangePlatformData = {
 			issue: this.buildIssueRef(issueData as SafeRecord),
+			...(isDeleted ? { isDeleted: true } : {}),
 		};
 
 		const message: IssueStateChangeMessage = {

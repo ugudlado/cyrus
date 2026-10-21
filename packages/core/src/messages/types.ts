@@ -367,6 +367,12 @@ export interface UnassignMessage extends InternalMessageBase {
 export interface LinearIssueStateChangePlatformData {
 	/** Issue that changed state */
 	issue: LinearPlatformRef["issue"];
+	/**
+	 * True when the issue was deleted (its state can no longer be fetched).
+	 * Otherwise the receiver should confirm the issue's current state is
+	 * completed or canceled before treating the change as terminal.
+	 */
+	isDeleted?: boolean;
 }
 
 /**

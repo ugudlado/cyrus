@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - Recreating a worktree for an issue whose branch already exists on the remote now continues from `origin/<branch>` (and fast-forwards a stale local branch of the same name) instead of starting a fresh branch from the base branch. Local-only commits are never discarded.
+- Moving a Linear issue between non-terminal statuses no longer stops its sessions and deletes its worktree: Cyrus now confirms the issue is actually Done or Canceled (or deleted) before tearing down, and does nothing if it cannot check.
 - Duplicate Linear deliveries of the same agent session `created` event no longer start two agents on the same issue.
 - Sandboxed sessions can now run `git add`/`commit` inside their worktree again: the repository's shared `.git` directory is made writable (instead of read-only) in the sandbox, but only after checking that it really is the configured repository's own `.git`. As a side effect, sandboxed Bash can no longer read the repository's main checkout, only the session worktree, its attachments and any `sandbox.writablePaths`.
 

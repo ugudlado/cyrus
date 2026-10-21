@@ -3679,6 +3679,36 @@ ${taskSection}`;
 
 		const issueId = message.workItemId;
 
+		// Linear sends issueStatusChanged for any status change, not only
+		// terminal ones, so confirm the issue is really completed or canceled.
+		// A deleted issue cannot be fetched and is terminal by definition.
+		if (!message.platformData.isDeleted) {
+			const issueTracker = this.issueTrackers.get(message.organizationId);
+			let stateType: string | undefined;
+			try {
+				if (!issueTracker) {
+					throw new Error(
+						`no issue tracker for workspace ${message.organizationId}`,
+					);
+				}
+				const fullIssue = await issueTracker.fetchIssue(issueId);
+				const state = await fullIssue.state;
+				stateType = state?.type;
+			} catch (error) {
+				this.logger.warn(
+					`Could not verify state of ${message.workItemIdentifier}; skipping teardown:`,
+					error,
+				);
+				return;
+			}
+			if (stateType !== "completed" && stateType !== "canceled") {
+				this.logger.info(
+					`Issue ${message.workItemIdentifier} is in state type "${stateType}", not completed/canceled; skipping teardown`,
+				);
+				return;
+			}
+		}
+
 		// Stop all active sessions for this issue
 		const sessions = this.agentSessionManager.getSessionsByIssueId(issueId);
 		for (const session of sessions) {

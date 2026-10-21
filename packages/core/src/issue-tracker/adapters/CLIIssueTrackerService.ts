@@ -168,7 +168,11 @@ export class CLIIssueTrackerService
 			.map((id) => this.state.labels.get(id))
 			.filter((l): l is CLILabelData => l !== undefined);
 
-		return createCLIIssue(issueData, resolvedLabels);
+		return createCLIIssue(
+			issueData,
+			resolvedLabels,
+			this.resolveIssueState(issueData),
+		);
 	}
 
 	/**
@@ -256,7 +260,11 @@ export class CLIIssueTrackerService
 			.filter((l): l is CLILabelData => l !== undefined);
 
 		// Create and return the issue
-		const issue = createCLIIssue(issueData, resolvedLabels);
+		const issue = createCLIIssue(
+			issueData,
+			resolvedLabels,
+			this.resolveIssueState(issueData),
+		);
 
 		// Emit state change event
 		this.emit("issue:created", { issue });
@@ -298,7 +306,13 @@ export class CLIIssueTrackerService
 				const resolvedLabels = issueData.labelIds
 					.map((id) => this.state.labels.get(id))
 					.filter((l): l is CLILabelData => l !== undefined);
-				allChildren.push(createCLIIssue(issueData, resolvedLabels));
+				allChildren.push(
+					createCLIIssue(
+						issueData,
+						resolvedLabels,
+						this.resolveIssueState(issueData),
+					),
+				);
 			}
 		}
 
@@ -422,7 +436,11 @@ export class CLIIssueTrackerService
 		const resolvedLabels = issueData.labelIds
 			.map((id) => this.state.labels.get(id))
 			.filter((l): l is CLILabelData => l !== undefined);
-		const issue = createCLIIssue(issueData, resolvedLabels);
+		const issue = createCLIIssue(
+			issueData,
+			resolvedLabels,
+			this.resolveIssueState(issueData),
+		);
 		this.emit("issue:updated", { issue });
 
 		return issue;
@@ -1115,6 +1133,15 @@ export class CLIIssueTrackerService
 		this.eventTransport.emitEvent(webhookEvent);
 	}
 
+	/** Look up the workflow state of an issue so `issue.state` resolves. */
+	private resolveIssueState(
+		issueData: CLIIssueData,
+	): CLIWorkflowStateData | undefined {
+		return issueData.stateId
+			? this.state.workflowStates.get(issueData.stateId)
+			: undefined;
+	}
+
 	/**
 	 * Terminate an issue by moving it to a terminal state (completed / canceled /
 	 * deleted) and emit an {@link IssueStateChangeMessage} on the unified message
@@ -1178,6 +1205,7 @@ export class CLIIssueTrackerService
 						? { id: team.id, name: team.name, key: team.key }
 						: undefined,
 				},
+				...(action === "deleted" ? { isDeleted: true } : {}),
 			};
 
 			const message: IssueStateChangeMessage = {

@@ -251,6 +251,7 @@ export interface CLIAgentActivityData {
 export function createCLIIssue(
 	data: CLIIssueData,
 	resolvedLabels?: CLILabelData[],
+	resolvedState?: CLIWorkflowStateData,
 ): Issue {
 	// Create a partial object with all the required properties
 	const issue = {
@@ -329,7 +330,15 @@ export function createCLIIssue(
 			return undefined;
 		},
 		get state() {
-			return undefined;
+			return resolvedState
+				? Promise.resolve(
+						// Pick-based WorkflowState is structurally narrower than the
+						// SDK type Issue.state expects; consumers only read id/name/type.
+						createCLIWorkflowState(
+							resolvedState,
+						) as unknown as LinearSDK.WorkflowState,
+					)
+				: undefined;
 		},
 		get parent() {
 			return undefined;

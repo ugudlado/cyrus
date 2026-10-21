@@ -465,6 +465,7 @@ describe("LinearMessageTranslator", () => {
 			if (stateChange.action !== "issue_state_change") return;
 
 			expect(stateChange.isTerminal).toBe(true);
+			expect(stateChange.platformData.isDeleted).toBeUndefined();
 		});
 
 		it("should not match other AppUserNotification actions as state changes", () => {
@@ -532,6 +533,7 @@ describe("LinearMessageTranslator", () => {
 			if (stateChange.action !== "issue_state_change") return;
 
 			expect(stateChange.isTerminal).toBe(true);
+			expect(stateChange.platformData.isDeleted).toBe(true);
 		});
 
 		it("should not match Issue/update as issue deleted", () => {
