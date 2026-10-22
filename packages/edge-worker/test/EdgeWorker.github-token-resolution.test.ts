@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RepositoryConfig } from "cyrus-core";
@@ -21,6 +21,7 @@ describe("EdgeWorker.resolveGitHubToken precedence (CYHOST-913)", () => {
 	let cyrusHome: string;
 	let store: GitHubTokenStore;
 	let savedGitHubTokenEnv: string | undefined;
+	let savedTokenFileEnv: string | undefined;
 
 	const repository = {
 		id: "repo-1",
@@ -33,6 +34,8 @@ describe("EdgeWorker.resolveGitHubToken precedence (CYHOST-913)", () => {
 		githubUrl: "https://github.com/myorg/repo-one",
 	} as RepositoryConfig;
 
+	const logger = { warn: vi.fn(), debug: vi.fn(), info: vi.fn() };
+
 	function resolve(
 		event: { installationToken?: string },
 		repo?: RepositoryConfig,
@@ -41,7 +44,7 @@ describe("EdgeWorker.resolveGitHubToken precedence (CYHOST-913)", () => {
 		const fakeThis = {
 			githubTokenStore: store,
 			gitHubAppTokenProvider: appTokenProvider ?? null,
-			logger: { warn: vi.fn(), debug: vi.fn(), info: vi.fn() },
+			logger,
 		};
 		return (
 			EdgeWorker.prototype as unknown as {
@@ -58,9 +61,17 @@ describe("EdgeWorker.resolveGitHubToken precedence (CYHOST-913)", () => {
 		store = new GitHubTokenStore(cyrusHome);
 		savedGitHubTokenEnv = process.env.GITHUB_TOKEN;
 		delete process.env.GITHUB_TOKEN;
+		savedTokenFileEnv = process.env.GITHUB_TOKEN_FILE;
+		delete process.env.GITHUB_TOKEN_FILE;
+		vi.clearAllMocks();
 	});
 
 	afterEach(() => {
+		if (savedTokenFileEnv === undefined) {
+			delete process.env.GITHUB_TOKEN_FILE;
+		} else {
+			process.env.GITHUB_TOKEN_FILE = savedTokenFileEnv;
+		}
 		rmSync(cyrusHome, { recursive: true, force: true });
 		if (savedGitHubTokenEnv === undefined) {
 			delete process.env.GITHUB_TOKEN;
@@ -176,5 +187,65 @@ describe("EdgeWorker.resolveGitHubToken precedence (CYHOST-913)", () => {
 		const token = await resolve({}, repository, provider);
 		expect(token).toBe("ghs_minted");
 		expect(provider.getToken).toHaveBeenCalled();
+	});
+
+	describe("GITHUB_TOKEN_FILE tier", () => {
+		let tokenFile: string;
+
+		beforeEach(() => {
+			tokenFile = join(cyrusHome, "github-token");
+			process.env.GITHUB_TOKEN_FILE = tokenFile;
+			process.env.GITHUB_TOKEN = "ghp_pat";
+		});
+
+		it("re-reads the file on every call", async () => {
+			writeFileSync(tokenFile, "ghs_file_1");
+			expect(await resolve({})).toBe("ghs_file_1");
+			writeFileSync(tokenFile, "ghs_file_2");
+			expect(await resolve({})).toBe("ghs_file_2");
+		});
+
+		it("trims surrounding whitespace", async () => {
+			writeFileSync(tokenFile, "  ghs_file\n");
+			expect(await resolve({})).toBe("ghs_file");
+		});
+
+		it("falls back to GITHUB_TOKEN when the file is missing", async () => {
+			expect(await resolve({})).toBe("ghp_pat");
+		});
+
+		it("falls back to GITHUB_TOKEN when the file is empty", async () => {
+			writeFileSync(tokenFile, " \n");
+			expect(await resolve({})).toBe("ghp_pat");
+		});
+
+		it("behaves as before when GITHUB_TOKEN_FILE is unset", async () => {
+			delete process.env.GITHUB_TOKEN_FILE;
+			writeFileSync(tokenFile, "ghs_file");
+			expect(await resolve({})).toBe("ghp_pat");
+		});
+
+		it("ranks below the forwarded and App tokens", async () => {
+			writeFileSync(tokenFile, "ghs_file");
+			expect(await resolve({ installationToken: "ghs_fwd" })).toBe("ghs_fwd");
+			const provider = { getToken: vi.fn().mockResolvedValue("ghs_minted") };
+			expect(await resolve({}, undefined, provider)).toBe("ghs_minted");
+		});
+
+		it("never logs the token or the file path", async () => {
+			writeFileSync(tokenFile, "ghs_secret_value");
+			await resolve({});
+			rmSync(tokenFile);
+			await resolve({});
+			writeFileSync(tokenFile, "");
+			await resolve({});
+			const logged = JSON.stringify([
+				logger.warn.mock.calls,
+				logger.debug.mock.calls,
+				logger.info.mock.calls,
+			]);
+			expect(logged).not.toContain("ghs_secret_value");
+			expect(logged).not.toContain(tokenFile);
+		});
 	});
 });

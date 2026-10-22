@@ -7,6 +7,8 @@ All notable changes to this project will be documented in this file.
 ### Added
 - New opt-in "untrusted worktree" mode (set `CYRUS_UNTRUSTED_WORKTREE=1`) for hardened installs where sessions may be steered by hostile text. When on, Cyrus no longer trusts files a session can write into its own worktree: the repository's `cyrus-setup.sh` / `cyrus-teardown.sh` are not run, the worktree `.env` and `.mcp.json` are not loaded, Claude's file-based settings (user, project, local) are not read (Claude sessions only; Gemini, Codex and Cursor runners are not affected), and Cyrus stops writing `.claude/settings.local.json` into the worktree. Off by default; behaviour is unchanged unless you set it. Note that repo `CLAUDE.md`, skills and slash commands are not loaded in this mode.
 
+- Self-hosted Cyrus can read its GitHub token from a file (`GITHUB_TOKEN_FILE`) that is re-read on every use, so short-lived tokens refreshed by an external minter keep working. It is used after GitHub App tokens and before the `GITHUB_TOKEN` env var, which remains the fallback if the file is missing or empty.
+
 ### Fixed
 - Recreating a worktree for an issue whose branch already exists on the remote now continues from `origin/<branch>` (and fast-forwards a stale local branch of the same name) instead of starting a fresh branch from the base branch. Local-only commits are never discarded.
 - Moving a Linear issue between non-terminal statuses no longer stops its sessions and deletes its worktree: Cyrus now confirms the issue is actually Done or Canceled (or deleted) before tearing down, and does nothing if it cannot check.

@@ -1383,7 +1383,10 @@ export class EdgeWorker extends EventEmitter {
 	 *    cyrus-hosted via /api/update/github-tokens — multi-org support)
 	 * 2. Forwarded installation token from CYHOST (cloud/proxy mode)
 	 * 3. Self-minted installation token from GitHub App credentials (self-hosted)
-	 * 4. Personal access token from GITHUB_TOKEN env var (fallback)
+	 * 4. Token read fresh from the file named by GITHUB_TOKEN_FILE (re-read on
+	 *    every call so an external minter can refresh short-lived tokens;
+	 *    missing/unreadable/empty file falls through to tier 5)
+	 * 5. Personal access token from GITHUB_TOKEN env var (fallback)
 	 */
 	private async resolveGitHubToken(
 		event: GitHubWebhookEvent,
@@ -1403,6 +1406,22 @@ export class EdgeWorker extends EventEmitter {
 				this.logger.warn(
 					"Failed to mint GitHub App installation token, falling back to GITHUB_TOKEN",
 					error instanceof Error ? error : new Error(String(error)),
+				);
+			}
+		}
+		const tokenFile = process.env.GITHUB_TOKEN_FILE;
+		if (tokenFile) {
+			try {
+				const fileToken = (await readFile(tokenFile, "utf-8")).trim();
+				if (fileToken) return fileToken;
+				this.logger.warn(
+					"GITHUB_TOKEN_FILE is empty, falling back to GITHUB_TOKEN",
+				);
+			} catch (error) {
+				// Log only the error code: never the token or file contents.
+				const code = (error as NodeJS.ErrnoException)?.code ?? "unknown";
+				this.logger.warn(
+					`Failed to read GITHUB_TOKEN_FILE (${code}), falling back to GITHUB_TOKEN`,
 				);
 			}
 		}
@@ -2022,7 +2041,7 @@ Your base branch \`${branchName}\` has received ${commitCount} new commit(s). Co
 				"X-GitHub-Api-Version": "2022-11-28",
 			};
 
-			// Resolve GitHub token (org-matched store token > installation token > App token > PAT)
+			// Resolve GitHub token (org-matched store token > installation token > App token > token file > PAT)
 			const token = await this.resolveGitHubToken(event, repository);
 			if (token) {
 				headers.Authorization = `Bearer ${token}`;
@@ -2238,7 +2257,7 @@ ${taskSection}`;
 				return;
 			}
 
-			// Resolve GitHub token (org-matched store token > installation token > App token > PAT)
+			// Resolve GitHub token (org-matched store token > installation token > App token > token file > PAT)
 			const token = await this.resolveGitHubToken(event, repository);
 			if (!token) {
 				this.logger.warn(
