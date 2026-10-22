@@ -4603,6 +4603,16 @@ ${taskSection}`;
 				);
 				return;
 			}
+			// The in-memory claim set is empty after a restart; the session manager's
+			// map is restored from persisted state, so also ignore a `created`
+			// redelivery for a session it already tracks. Optional call keeps
+			// partial manager mocks (without the method) unaffected.
+			if (this.agentSessionManager.hasSession?.(createdSessionId) === true) {
+				this.logger.info(
+					`Ignoring duplicate agent session created webhook for already-tracked session ${createdSessionId}`,
+				);
+				return;
+			}
 			this.claimedSessionCreatedIds.add(createdSessionId);
 			if (this.claimedSessionCreatedIds.size > 1000) {
 				const oldest = this.claimedSessionCreatedIds.values().next().value;

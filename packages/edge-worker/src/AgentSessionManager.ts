@@ -1345,6 +1345,15 @@ export class AgentSessionManager extends EventEmitter {
 	}
 
 	/**
+	 * True if this manager tracks the given agent session id. The map is
+	 * restored from persisted state at startup, so this also answers for
+	 * sessions that began before a restart.
+	 */
+	hasSession(sessionId: string): boolean {
+		return this.sessions.has(sessionId);
+	}
+
+	/**
 	 * Get session by ID
 	 */
 	getSession(sessionId: string): CyrusAgentSession | undefined {

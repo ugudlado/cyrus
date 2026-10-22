@@ -12,7 +12,7 @@ All notable changes to this project will be documented in this file.
 - Moving a Linear issue between non-terminal statuses no longer stops its sessions and deletes its worktree: Cyrus now confirms the issue is actually Done or Canceled (or deleted) before tearing down, and does nothing if it cannot check.
 - Cyrus no longer re-triggers itself on its own GitHub comments: every comment, reply and acknowledgement it posts carries a hidden `<!-- cyrus-agent -->` marker, and incoming comments or reviews containing it are ignored. This works even when Cyrus posts with a token that belongs to a human account, where author filtering cannot tell the two apart.
 - The `verify-and-ship` skill now reuses a branch's pull request only while it is open; if the previous PR was merged or closed it opens a new one instead of reusing the finished one.
-- Duplicate Linear deliveries of the same agent session `created` event no longer start two agents on the same issue.
+- Duplicate Linear deliveries of the same agent session `created` event no longer start two agents on the same issue, including a redelivery that arrives after Cyrus restarted (sessions restored from saved state are recognised).
 - Sandboxed sessions can now run `git add`/`commit` inside their worktree again: the repository's shared `.git` directory is made writable (instead of read-only) in the sandbox, but only after checking that it really is the configured repository's own `.git`. As a side effect, sandboxed Bash can no longer read the repository's main checkout, only the session worktree, its attachments and any `sandbox.writablePaths`.
 
 ## [0.2.74] - 2026-10-20

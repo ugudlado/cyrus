@@ -232,6 +232,32 @@ describe("EdgeWorker - duplicate AgentSessionEvent.created deliveries", () => {
 			expect(initializeSpy).not.toHaveBeenCalled();
 		});
 
+		it("ignores a created redelivery for a session restored from persisted state", async () => {
+			mockAgentSessionManager.hasSession = vi.fn(
+				(id: string) => id === "restored-session",
+			);
+			const postSpy = vi.spyOn(
+				(edgeWorker as any).activityPoster,
+				"postThoughtActivity",
+			);
+
+			await deliver(makeWebhook("restored-session"));
+
+			expect(initializeSpy).not.toHaveBeenCalled();
+			expect(postSpy).not.toHaveBeenCalled();
+		});
+
+		it("handles a created event for a session id the manager does not track", async () => {
+			mockAgentSessionManager.hasSession = vi.fn().mockReturnValue(false);
+
+			await deliver(makeWebhook("brand-new-session"));
+
+			expect(mockAgentSessionManager.hasSession).toHaveBeenCalledWith(
+				"brand-new-session",
+			);
+			expect(initializeSpy).toHaveBeenCalledTimes(1);
+		});
+
 		it("bounds the number of remembered session ids", async () => {
 			initializeSpy.mockResolvedValue(undefined);
 			for (let i = 0; i < 1100; i++) {
