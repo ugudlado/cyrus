@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { CyrusAgentSession, ILogger, RepositoryConfig } from "cyrus-core";
+import type { ILogger, KittuAgentSession, RepositoryConfig } from "kittu-core";
 import { afterEach, describe, expect, it } from "vitest";
 import { GIT_ENV_FORBIDDEN_IN_SESSION, GitEnv } from "../src/gitEnv.js";
 import {
@@ -29,7 +29,7 @@ describe("parent git env never reaches the session", () => {
 		fx = makeSessionFixture();
 		const hooks = join(fx.root, "pinned-hooks");
 		const gitEnv = new GitEnv({
-			cyrusHome: join(fx.root, "home"),
+			kittuHome: join(fx.root, "home"),
 			hooksDir: hooks,
 			credentialHelper: "/opt/pinned/credential-helper",
 			ghBinary: "/opt/pinned/gh",
@@ -52,7 +52,7 @@ describe("parent git env never reaches the session", () => {
 				issueId: "i",
 				issue: { identifier: "ENG-1" },
 				workspace: { path: fx.ws, isGitWorktree: true },
-			} as unknown as CyrusAgentSession,
+			} as unknown as KittuAgentSession,
 			repository: {
 				id: "repo-1",
 				name: "r",
@@ -64,7 +64,7 @@ describe("parent git env never reaches the session", () => {
 			allowedDirectories: [fx.ws],
 			gitTargets: [fx.target],
 			disallowedTools: [],
-			cyrusHome: join(fx.root, "home"),
+			kittuHome: join(fx.root, "home"),
 			linearWorkspaceId: "ws-1",
 			logger: silentLogger,
 			onMessage: () => {},

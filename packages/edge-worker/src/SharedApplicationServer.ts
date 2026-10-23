@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { CloudflareTunnelClient } from "cyrus-cloudflare-tunnel-client";
-import { createLogger, type ILogger } from "cyrus-core";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
+import { CloudflareTunnelClient } from "kittu-cloudflare-tunnel-client";
+import { createLogger, type ILogger } from "kittu-core";
 
 const ROBOTS_TXT = "User-agent: *\nDisallow: /\n";
 const ROBOTS_HEADER = "noindex, nofollow";
@@ -317,7 +317,7 @@ export class SharedApplicationServer {
 
 			// Check if we should use direct Linear OAuth (when self-hosting)
 			const isExternalHost =
-				process.env.CYRUS_HOST_EXTERNAL?.toLowerCase().trim() === "true";
+				process.env.KITTU_HOST_EXTERNAL?.toLowerCase().trim() === "true";
 			const useDirectOAuth = isExternalHost && process.env.LINEAR_CLIENT_ID;
 
 			const callbackBaseUrl = `http://${this.host}:${this.port}`;
@@ -326,7 +326,7 @@ export class SharedApplicationServer {
 			if (useDirectOAuth) {
 				// Use local OAuth authorize endpoint
 				authUrl = `${callbackBaseUrl}/oauth/authorize?callback=${encodeURIComponent(`${callbackBaseUrl}/callback`)}`;
-				this.logger.info(`Using direct OAuth mode (CYRUS_HOST_EXTERNAL=true)`);
+				this.logger.info(`Using direct OAuth mode (KITTU_HOST_EXTERNAL=true)`);
 			} else {
 				// Use proxy OAuth endpoint
 				authUrl = `${proxyUrl}/oauth/authorize?callback=${encodeURIComponent(`${callbackBaseUrl}/callback`)}`;

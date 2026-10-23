@@ -1,4 +1,4 @@
-import type { SDKAssistantMessage, SDKUserMessage } from "cyrus-core";
+import type { SDKAssistantMessage, SDKUserMessage } from "kittu-core";
 import { describe, expect, it } from "vitest";
 import type { NormalizedCodexEvent } from "../src/backend/types.js";
 import {
@@ -7,7 +7,7 @@ import {
 } from "../src/CodexEventMapper.js";
 
 function createMapper(
-	workingDirectory = "/Users/connor/code/cyrus",
+	workingDirectory = "/Users/connor/code/kittu",
 ): CodexEventMapper {
 	const ctx: MapperContext = {
 		workingDirectory,
@@ -100,7 +100,7 @@ describe("CodexEventMapper tool event mapping", () => {
 	});
 
 	it("maps file_change events to Edit tool entries with normalized paths", () => {
-		const mapper = createMapper("/Users/connor/code/cyrus");
+		const mapper = createMapper("/Users/connor/code/kittu");
 
 		handle(mapper, {
 			kind: "item-completed",
@@ -109,7 +109,7 @@ describe("CodexEventMapper tool event mapping", () => {
 				type: "file_change",
 				changes: [
 					{
-						path: "/Users/connor/code/cyrus/packages/codex-runner/src/CodexRunner.ts",
+						path: "/Users/connor/code/kittu/packages/codex-runner/src/CodexRunner.ts",
 						kind: "update",
 					},
 				],

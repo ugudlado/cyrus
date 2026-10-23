@@ -8,8 +8,8 @@ import type {
 	AgentRunnerConfig,
 	AgentSessionInfo,
 	SDKMessage,
-} from "cyrus-core";
-import type { CyrusSandboxFilesystem } from "./config/sandboxPolicy.js";
+} from "kittu-core";
+import type { KittuSandboxFilesystem } from "./config/sandboxPolicy.js";
 
 export type CodexConfigValue =
 	| string
@@ -55,7 +55,7 @@ export interface CodexRunnerConfig extends AgentRunnerConfig {
 	 * session runs under a granular per-thread sandbox policy instead of the
 	 * coarse default mode. Paths must be absolute.
 	 */
-	sandboxSettings?: CyrusSandboxFilesystem;
+	sandboxSettings?: KittuSandboxFilesystem;
 	/**
 	 * Extra absolute paths made writable on top of the worktree (operator
 	 * whitelist, e.g. `~/.supabase`). Applied in both the default

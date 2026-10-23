@@ -1,4 +1,4 @@
-import type { CyrusAgentSession, ILogger, RepositoryConfig } from "cyrus-core";
+import type { ILogger, KittuAgentSession, RepositoryConfig } from "kittu-core";
 import { describe, expect, it } from "vitest";
 import {
 	type IChatToolResolver,
@@ -43,14 +43,14 @@ describe("RunnerConfigBuilder Codex managed skills", () => {
 				path: "/ws/repo-a",
 				isGitWorktree: true,
 			},
-		} as unknown as CyrusAgentSession;
+		} as unknown as KittuAgentSession;
 		const repository = {
 			id: "repo-a",
 			name: "Repo A",
 			repositoryPath: "/repos/repo-a",
 			allowedTools: [],
 		} as unknown as RepositoryConfig;
-		const plugins = [{ type: "local" as const, path: "/cyrus/user-skills" }];
+		const plugins = [{ type: "local" as const, path: "/kittu/user-skills" }];
 
 		const { config, runnerType } = makeBuilder().buildIssueConfig({
 			session,
@@ -60,7 +60,7 @@ describe("RunnerConfigBuilder Codex managed skills", () => {
 			allowedTools: ["Read(**)"],
 			allowedDirectories: ["/repos/repo-a"],
 			disallowedTools: [],
-			cyrusHome: "/tmp/cyrus-home",
+			kittuHome: "/tmp/kittu-home",
 			linearWorkspaceId: "ws-1",
 			logger: silentLogger,
 			onMessage: () => {},

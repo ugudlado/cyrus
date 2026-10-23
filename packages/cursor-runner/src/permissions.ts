@@ -1,7 +1,7 @@
-// Translates Cyrus / Claude-style tool patterns into the simpler pattern
-// vocabulary that the .cursor/cyrus-permission-check.mjs hook understands.
+// Translates Kittu / Claude-style tool patterns into the simpler pattern
+// vocabulary that the .cursor/kittu-permission-check.mjs hook understands.
 //
-// Cyrus tool patterns look like (Claude SDK conventions):
+// Kittu tool patterns look like (Claude SDK conventions):
 //   Read(<glob>)           Bash(<cmd>:<args>)
 //   Write(<glob>)          mcp__<server>__<tool>
 //   Edit(<glob>)           Read | Bash | Edit | Write   (bare tool name)
@@ -16,7 +16,7 @@
 import { type Dirent, readdirSync } from "node:fs";
 import { join, parse as pathParse, resolve } from "node:path";
 
-export interface CyrusPermissionsConfig {
+export interface KittuPermissionsConfig {
 	workspace: string;
 	allow: string[];
 	deny: string[];
@@ -27,10 +27,10 @@ export interface CyrusPermissionsConfig {
 	 * Without this, server-scoped patterns like `Mcp(linear:*)` cannot match
 	 * because we never see "linear" in the payload.
 	 */
-	mcpServers?: CyrusPermissionsMcpServer[];
+	mcpServers?: KittuPermissionsMcpServer[];
 }
 
-export interface CyrusPermissionsMcpServer {
+export interface KittuPermissionsMcpServer {
 	name: string;
 	/** stdio: full reconstructed command line `${command} ${args.join(' ')}`. */
 	commandLine?: string;
@@ -85,7 +85,7 @@ function mapMcpPattern(pattern: string): string | null {
 }
 
 /**
- * Map a single Cyrus/Claude tool pattern into zero or more Cursor hook
+ * Map a single Kittu/Claude tool pattern into zero or more Cursor hook
  * patterns. Returns an empty array for unrecognized patterns.
  */
 function mapToolPatternToHookPatterns(pattern: string): string[] {
@@ -286,7 +286,7 @@ export function buildAutoDenyPatterns(args: {
  * alongside the permission-check helper. Returns deduplicated
  * allow/deny pattern lists in Cursor hook syntax.
  */
-export function buildCyrusPermissionsConfig(args: {
+export function buildKittuPermissionsConfig(args: {
 	workspace: string;
 	allowedTools?: string[];
 	disallowedTools?: string[];
@@ -294,7 +294,7 @@ export function buildCyrusPermissionsConfig(args: {
 		string,
 		{ command?: string; args?: string[]; url?: string }
 	>;
-}): CyrusPermissionsConfig {
+}): KittuPermissionsConfig {
 	const {
 		workspace,
 		allowedTools = [],
@@ -319,7 +319,7 @@ export function buildCyrusPermissionsConfig(args: {
 		deny.add(pattern);
 	}
 
-	const mcpServers: CyrusPermissionsMcpServer[] = [];
+	const mcpServers: KittuPermissionsMcpServer[] = [];
 	for (const [name, server] of Object.entries(mcpServersIn)) {
 		if (!server || typeof server !== "object") continue;
 		if (typeof server.url === "string" && server.url) {

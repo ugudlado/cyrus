@@ -4,10 +4,10 @@ import {
 	type LogContext,
 	type LogEventAttributes,
 	type LogLevel,
-} from "cyrus-core";
+} from "kittu-core";
 
-// Re-export LogLevel from cyrus-core so existing consumers don't break
-export { LogLevel } from "cyrus-core";
+// Re-export LogLevel from kittu-core so existing consumers don't break
+export { LogLevel } from "kittu-core";
 
 /**
  * Logger configuration options

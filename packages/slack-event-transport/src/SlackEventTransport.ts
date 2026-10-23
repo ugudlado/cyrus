@@ -1,8 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { EventEmitter } from "node:events";
-import type { TranslationContext } from "cyrus-core";
-import { createLogger, type ILogger } from "cyrus-core";
 import type { FastifyReply, FastifyRequest } from "fastify";
+import type { TranslationContext } from "kittu-core";
+import { createLogger, type ILogger } from "kittu-core";
 import { SlackMessageTranslator } from "./SlackMessageTranslator.js";
 import type {
 	SlackEventEnvelope,
@@ -111,7 +111,7 @@ export class SlackEventTransport extends EventEmitter {
 	/**
 	 * Resolve the effective verification mode and secret at request time.
 	 * When started in proxy mode, checks if SLACK_SIGNING_SECRET and
-	 * CYRUS_HOST_EXTERNAL have been added to the environment since startup,
+	 * KITTU_HOST_EXTERNAL have been added to the environment since startup,
 	 * enabling a runtime switch to direct verification.
 	 *
 	 * Encapsulates all mode-switch detection and logging so callers only
@@ -128,7 +128,7 @@ export class SlackEventTransport extends EventEmitter {
 
 		// Check if direct mode env vars have been added at runtime
 		const isExternalHost =
-			process.env.CYRUS_HOST_EXTERNAL?.toLowerCase().trim() === "true";
+			process.env.KITTU_HOST_EXTERNAL?.toLowerCase().trim() === "true";
 		const slackSigningSecret = process.env.SLACK_SIGNING_SECRET;
 		const hasSlackSigningSecret =
 			slackSigningSecret != null && slackSigningSecret !== "";
@@ -349,7 +349,7 @@ export class SlackEventTransport extends EventEmitter {
 		}
 
 		// Thread-following can be disabled (per-team toggle pushed via config, or
-		// the CYRUS_SLACK_THREAD_FOLLOWING_DISABLED env kill-switch). When off,
+		// the KITTU_SLACK_THREAD_FOLLOWING_DISABLED env kill-switch). When off,
 		// behave exactly like the app_mention-only runtime: drop `message` events
 		// here — BEFORE the de-dup below records their (channel, ts) — so a
 		// mention's `message` twin can never suppress its `app_mention`.
@@ -368,7 +368,7 @@ export class SlackEventTransport extends EventEmitter {
 		// `message` events fire for every message in every channel the bot can
 		// see, so apply cheap structural filters before doing any work. Anything
 		// that gets through here is a candidate follow-up prompt; the binding
-		// check (is this thread actually bound to Cyrus?) happens downstream.
+		// check (is this thread actually bound to Kittu?) happens downstream.
 		if (event.type === "message" && !this.shouldEmitMessageEvent(event)) {
 			reply.code(200).send({ success: true, ignored: true });
 			return;
@@ -424,7 +424,7 @@ export class SlackEventTransport extends EventEmitter {
 	 *
 	 * Drops the bot's own messages (which would otherwise loop), edited/deleted
 	 * and other subtype events, and top-level (non-threaded) messages — only a
-	 * threaded reply can belong to a thread Cyrus is already bound to.
+	 * threaded reply can belong to a thread Kittu is already bound to.
 	 */
 	private shouldEmitMessageEvent(event: SlackMessageEvent): boolean {
 		if (event.bot_id) {

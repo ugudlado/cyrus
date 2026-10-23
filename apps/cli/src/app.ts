@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command } from "commander";
-import { setGlobalErrorReporter } from "cyrus-core";
 import dotenv from "dotenv";
+import { defaultKittuHome, setGlobalErrorReporter } from "kittu-core";
 import { Application } from "./Application.js";
 import { AuthCommand } from "./commands/AuthCommand.js";
 import { CheckTokensCommand } from "./commands/CheckTokensCommand.js";
@@ -26,9 +25,9 @@ const packageJsonPath = resolve(__dirname, "..", "..", "package.json");
 const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
 
 // Pre-load env vars from the resolved .env file before initialising Sentry, so
-// that CYRUS_SENTRY_DISABLED / CYRUS_SENTRY_DSN take effect on the first run.
+// that KITTU_SENTRY_DISABLED / KITTU_SENTRY_DSN take effect on the first run.
 // We re-resolve the path inside Application using the same precedence (CLI
-// flag wins); this preliminary load only honours CYRUS_HOME and the default.
+// flag wins); this preliminary load only honours KITTU_HOME and the default.
 preloadEnvForBootstrap();
 
 // Initialise the error reporter as early as possible so that exceptions
@@ -42,13 +41,13 @@ setGlobalErrorReporter(errorReporter);
 const program = new Command();
 
 program
-	.name("cyrus")
+	.name("kittu")
 	.description("AI-powered Linear issue automation using Claude")
 	.version(packageJson.version)
 	.option(
-		"--cyrus-home <path>",
-		"Specify custom Cyrus config directory",
-		resolve(homedir(), ".cyrus"),
+		"--kittu-home <path>",
+		"Specify custom Kittu config directory",
+		defaultKittuHome(),
 	)
 	.option("--env-file <path>", "Path to environment variables file");
 
@@ -59,7 +58,7 @@ program
 	.action(async () => {
 		const opts = program.opts();
 		const app = new Application(
-			opts.cyrusHome,
+			opts.kittuHome,
 			opts.envFile,
 			packageJson.version,
 			errorReporter,
@@ -70,11 +69,11 @@ program
 // Auth command
 program
 	.command("auth <auth-key>")
-	.description("Authenticate with Cyrus using auth key")
+	.description("Authenticate with Kittu using auth key")
 	.action(async (authKey: string) => {
 		const opts = program.opts();
 		const app = new Application(
-			opts.cyrusHome,
+			opts.kittuHome,
 			opts.envFile,
 			packageJson.version,
 			errorReporter,
@@ -89,7 +88,7 @@ program
 	.action(async () => {
 		const opts = program.opts();
 		const app = new Application(
-			opts.cyrusHome,
+			opts.kittuHome,
 			opts.envFile,
 			packageJson.version,
 			errorReporter,
@@ -104,7 +103,7 @@ program
 	.action(async () => {
 		const opts = program.opts();
 		const app = new Application(
-			opts.cyrusHome,
+			opts.kittuHome,
 			opts.envFile,
 			packageJson.version,
 			errorReporter,
@@ -118,7 +117,7 @@ program
 	.description("Authenticate with Linear OAuth directly")
 	.option(
 		"--tenant <id>",
-		"Authorize this tenant's own Linear OAuth app (stop cyrus-agent first: the callback uses its port)",
+		"Authorize this tenant's own Linear OAuth app (stop kittu-agent first: the callback uses its port)",
 	)
 	.option(
 		"--expect-slug <slug>",
@@ -127,7 +126,7 @@ program
 	.action(async (cmdOptions: { tenant?: string; expectSlug?: string }) => {
 		const opts = program.opts();
 		const app = new Application(
-			opts.cyrusHome,
+			opts.kittuHome,
 			opts.envFile,
 			packageJson.version,
 			errorReporter,
@@ -157,7 +156,7 @@ program
 		) => {
 			const opts = program.opts();
 			const app = new Application(
-				opts.cyrusHome,
+				opts.kittuHome,
 				opts.envFile,
 				packageJson.version,
 			);
@@ -188,20 +187,20 @@ program
  * Best-effort env preload so the error reporter can read its config before the
  * full {@link Application} bootstrap. We honour `--env-file` only as a literal
  * argv lookup (Commander hasn't parsed yet) and otherwise fall back to the
- * default `<cyrus-home>/.env` path.
+ * default `<kittu-home>/.env` path.
  */
 function preloadEnvForBootstrap(): void {
 	const argv = process.argv.slice(2);
 	const flagIdx = argv.indexOf("--env-file");
-	const cyrusHomeIdx = argv.indexOf("--cyrus-home");
+	const kittuHomeIdx = argv.indexOf("--kittu-home");
 
 	const envFile = flagIdx >= 0 ? argv[flagIdx + 1] : undefined;
-	const cyrusHome =
-		cyrusHomeIdx >= 0 && argv[cyrusHomeIdx + 1]
-			? (argv[cyrusHomeIdx + 1] as string)
-			: resolve(homedir(), ".cyrus");
+	const kittuHome =
+		kittuHomeIdx >= 0 && argv[kittuHomeIdx + 1]
+			? (argv[kittuHomeIdx + 1] as string)
+			: defaultKittuHome();
 
-	const path = envFile ?? join(cyrusHome, ".env");
+	const path = envFile ?? join(kittuHome, ".env");
 	if (existsSync(path)) {
 		dotenv.config({ path, override: false });
 	}

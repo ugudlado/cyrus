@@ -1,5 +1,5 @@
 {
-	"name": "cyrus-gitlab-event-transport",
+	"name": "kittu-gitlab-event-transport",
 	"version": "0.2.74",
 	"description": "GitLab event transport for receiving and verifying forwarded GitLab webhooks",
 	"repository": {
@@ -21,7 +21,7 @@
 		"test:run": "vitest run --passWithNoTests"
 	},
 	"dependencies": {
-		"cyrus-core": "workspace:*",
+		"kittu-core": "workspace:*",
 		"fastify": "^5.12.5"
 	},
 	"devDependencies": {

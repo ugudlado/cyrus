@@ -1,4 +1,4 @@
-import type { AgentActivityContent } from "cyrus-core";
+import type { AgentActivityContent } from "kittu-core";
 
 /**
  * String literal type for activity signals.

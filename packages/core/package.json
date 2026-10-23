@@ -1,7 +1,7 @@
 {
-	"name": "cyrus-core",
+	"name": "kittu-core",
 	"version": "0.2.74",
-	"description": "Core business logic for Cyrus",
+	"description": "Core business logic for Kittu",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/cyrusagents/cyrus.git",

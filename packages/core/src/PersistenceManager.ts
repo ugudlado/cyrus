@@ -1,28 +1,28 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import type {
-	CyrusAgentSession,
-	CyrusAgentSessionEntry,
 	IssueContext,
 	IssueMinimal,
-} from "./CyrusAgentSession.js";
+	KittuAgentSession,
+	KittuAgentSessionEntry,
+} from "./KittuAgentSession.js";
+import { defaultKittuHome } from "./legacy-compat.js";
 import { createLogger, type ILogger } from "./logging/index.js";
 
 /** Current persistence format version */
 export const PERSISTENCE_VERSION = "4.0";
 
 // Serialized versions with Date fields as strings
-export type SerializedCyrusAgentSession = CyrusAgentSession;
-// extends Omit<CyrusAgentSession, 'createdAt' | 'updatedAt'> {
+export type SerializedKittuAgentSession = KittuAgentSession;
+// extends Omit<KittuAgentSession, 'createdAt' | 'updatedAt'> {
 //   createdAt: string
 //   updatedAt: string
 // }
 
-export type SerializedCyrusAgentSessionEntry = CyrusAgentSessionEntry;
-// extends Omit<CyrusAgentSessionEntry, 'metadata'> {
-//   metadata?: Omit<CyrusAgentSessionEntry['metadata'], 'timestamp'> & {
+export type SerializedKittuAgentSessionEntry = KittuAgentSessionEntry;
+// extends Omit<KittuAgentSessionEntry, 'metadata'> {
+//   metadata?: Omit<KittuAgentSessionEntry['metadata'], 'timestamp'> & {
 //     timestamp?: string
 //   }
 // }
@@ -30,7 +30,7 @@ export type SerializedCyrusAgentSessionEntry = CyrusAgentSessionEntry;
 /**
  * v2.0 session format (for migration purposes)
  */
-interface V2CyrusAgentSession {
+interface V2KittuAgentSession {
 	linearAgentActivitySessionId: string;
 	type: string;
 	status: string;
@@ -60,8 +60,8 @@ interface V2CyrusAgentSession {
  */
 export interface SerializableEdgeWorkerState {
 	// Agent Session state - flat map of sessionId → session (v4.0)
-	agentSessions?: Record<string, SerializedCyrusAgentSession>;
-	agentSessionEntries?: Record<string, SerializedCyrusAgentSessionEntry[]>;
+	agentSessions?: Record<string, SerializedKittuAgentSession>;
+	agentSessionEntries?: Record<string, SerializedKittuAgentSessionEntry[]>;
 	// Child to parent agent session mapping
 	childToParentAgentSession?: Record<string, string>;
 	// Issue to repository mapping (for caching user repository selections)
@@ -73,10 +73,10 @@ export interface SerializableEdgeWorkerState {
  * v3.0 nested state format (for migration purposes)
  */
 export interface V3SerializableEdgeWorkerState {
-	agentSessions?: Record<string, Record<string, SerializedCyrusAgentSession>>;
+	agentSessions?: Record<string, Record<string, SerializedKittuAgentSession>>;
 	agentSessionEntries?: Record<
 		string,
-		Record<string, SerializedCyrusAgentSessionEntry[]>
+		Record<string, SerializedKittuAgentSessionEntry[]>
 	>;
 	childToParentAgentSession?: Record<string, string>;
 	issueRepositoryCache?: Record<string, string>;
@@ -90,8 +90,7 @@ export class PersistenceManager {
 	private logger: ILogger;
 
 	constructor(persistencePath?: string, logger?: ILogger) {
-		this.persistencePath =
-			persistencePath || join(homedir(), ".cyrus", "state");
+		this.persistencePath = persistencePath || join(defaultKittuHome(), "state");
 		this.logger = logger ?? createLogger({ component: "PersistenceManager" });
 	}
 
@@ -222,7 +221,7 @@ export class PersistenceManager {
 			)) {
 				migratedState.agentSessions![repoId] = {};
 				for (const [_sessionId, v2Session] of Object.entries(repoSessions)) {
-					const session = v2Session as unknown as V2CyrusAgentSession;
+					const session = v2Session as unknown as V2KittuAgentSession;
 					const migratedSession = this.migrateSessionV2ToV3(session);
 					// Use the new id as the key
 					migratedState.agentSessions![repoId][migratedSession.id] =
@@ -248,8 +247,8 @@ export class PersistenceManager {
 	private migrateV3ToV4(
 		v3State: V3SerializableEdgeWorkerState,
 	): SerializableEdgeWorkerState {
-		const flatSessions: Record<string, SerializedCyrusAgentSession> = {};
-		const flatEntries: Record<string, SerializedCyrusAgentSessionEntry[]> = {};
+		const flatSessions: Record<string, SerializedKittuAgentSession> = {};
+		const flatEntries: Record<string, SerializedKittuAgentSessionEntry[]> = {};
 
 		// Flatten sessions: merge all repo-keyed sessions into a single flat map
 		// Preserve the repoId key as a RepositoryContext so migrated sessions
@@ -303,8 +302,8 @@ export class PersistenceManager {
 	 * Migrate a single session from v2.0 to v3.0 format
 	 */
 	private migrateSessionV2ToV3(
-		v2Session: V2CyrusAgentSession,
-	): SerializedCyrusAgentSession {
+		v2Session: V2KittuAgentSession,
+	): SerializedKittuAgentSession {
 		// Build issueContext from v2.0 fields
 		const issueContext: IssueContext = {
 			trackerId: "linear", // v2.0 only supported Linear
@@ -338,7 +337,7 @@ export class PersistenceManager {
 			issue: v2Session.issue,
 			// New field: empty repositories for migrated sessions
 			repositories: [],
-		} as SerializedCyrusAgentSession;
+		} as SerializedKittuAgentSession;
 	}
 
 	/**

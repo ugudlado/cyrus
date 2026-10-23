@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
-import type { TranslationContext } from "cyrus-core";
-import { createLogger, type ILogger, ipMatchesAllowlist } from "cyrus-core";
 import type { FastifyReply, FastifyRequest } from "fastify";
+import type { TranslationContext } from "kittu-core";
+import { createLogger, type ILogger, ipMatchesAllowlist } from "kittu-core";
 import { GitLabMessageTranslator } from "./GitLabMessageTranslator.js";
 import type {
 	GitLabEventTransportConfig,
@@ -67,7 +67,7 @@ export class GitLabEventTransport extends EventEmitter {
 	/**
 	 * Resolve the effective verification mode and secret at request time.
 	 * When started in proxy mode, checks if GITLAB_WEBHOOK_SECRET and
-	 * CYRUS_HOST_EXTERNAL have been added to the environment since startup,
+	 * KITTU_HOST_EXTERNAL have been added to the environment since startup,
 	 * enabling a runtime switch to signature verification.
 	 */
 	private resolveVerification(): {
@@ -79,7 +79,7 @@ export class GitLabEventTransport extends EventEmitter {
 		}
 
 		const isExternalHost =
-			process.env.CYRUS_HOST_EXTERNAL?.toLowerCase().trim() === "true";
+			process.env.KITTU_HOST_EXTERNAL?.toLowerCase().trim() === "true";
 		const gitlabSecret = process.env.GITLAB_WEBHOOK_SECRET;
 		const hasGitlabSecret = gitlabSecret != null && gitlabSecret !== "";
 

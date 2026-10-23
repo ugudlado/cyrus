@@ -1,5 +1,5 @@
 {
-	"name": "cyrus-slack-event-transport",
+	"name": "kittu-slack-event-transport",
 	"version": "0.2.74",
 	"description": "Slack event transport for receiving and verifying forwarded Slack webhooks",
 	"repository": {
@@ -21,7 +21,7 @@
 		"test:run": "vitest run"
 	},
 	"dependencies": {
-		"cyrus-core": "workspace:*",
+		"kittu-core": "workspace:*",
 		"fastify": "^5.12.5"
 	},
 	"devDependencies": {

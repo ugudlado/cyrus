@@ -1,11 +1,11 @@
 ---
 name: release
-description: Prepare, verify, publish, and finish a coordinated Cyrus CLI release. Use when a user asks to release Cyrus, publish cyrus-ai, run a CLI release, or perform the /release workflow.
+description: Prepare, verify, publish, and finish a coordinated Kittu CLI release. Use when a user asks to release Kittu, publish kittu-ai, run a CLI release, or perform the /release workflow.
 ---
 
-# Release Cyrus
+# Release Kittu
 
-Run Cyrus releases through the trusted-publishing workflow. Do not publish
+Run Kittu releases through the trusted-publishing workflow. Do not publish
 workspace packages manually.
 
 ## Required reference

@@ -69,10 +69,10 @@ describe("buildCursorSandboxJson", () => {
 		const cfg = buildCursorSandboxJson({
 			workspace,
 			sandboxSettings: { enabled: true },
-			egressCaCertPath: "/Users/u/.cyrus/certs/cyrus-egress-ca.pem",
+			egressCaCertPath: "/Users/u/.kittu/certs/kittu-egress-ca.pem",
 		});
 		expect(cfg!.additionalReadonlyPaths).toContain(
-			"/Users/u/.cyrus/certs/cyrus-egress-ca.pem",
+			"/Users/u/.kittu/certs/kittu-egress-ca.pem",
 		);
 	});
 

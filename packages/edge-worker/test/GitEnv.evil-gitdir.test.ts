@@ -10,8 +10,8 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { ILogger } from "cyrus-core";
-import { GitHubAppTokenProvider } from "cyrus-github-event-transport";
+import type { ILogger } from "kittu-core";
+import { GitHubAppTokenProvider } from "kittu-github-event-transport";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GitService } from "../src/GitService.js";
 import { GitEnv, SessionGit } from "../src/gitEnv.js";
@@ -157,7 +157,7 @@ describe.each([
 	it("GitService repo-scope calls run nothing from the evil dir and succeed", async () => {
 		forge(fx, evil.dir, vector);
 		const service = new GitService(
-			{ cyrusHome: join(fx.root, "home"), gitAllowFileProtocol: true },
+			{ kittuHome: join(fx.root, "home"), gitAllowFileProtocol: true },
 			silentLogger,
 		);
 		expect(service.findWorktreeByBranch("main", fx.repo)).toBe(
@@ -235,7 +235,7 @@ if [ "$2" = view ]; then echo '{"body":"desc","number":7}'; else cat > "${rec}/s
 
 	const ghFor = (target = fx.target) => {
 		const gitEnv = new GitEnv({
-			cyrusHome: join(fx.root, "home"),
+			kittuHome: join(fx.root, "home"),
 			ghBinary: stub,
 		});
 		return new SessionGit(gitEnv, [target]);
@@ -251,7 +251,7 @@ if [ "$2" = view ]; then echo '{"body":"desc","number":7}'; else cat > "${rec}/s
 
 	it("runs the absolute gh from a neutral cwd with -R OWNER/NAME, the parent's branch and token", async () => {
 		// Canary tokens planted where the old shim / a naive lookup would look.
-		writeFileSync(join(fx.ws, "cyrus-gh-token"), "canary-from-workspace");
+		writeFileSync(join(fx.ws, "kittu-gh-token"), "canary-from-workspace");
 		await run(ghFor({ ...fx.target, storeToken: "parent-token" }), {});
 
 		const calls = records();
@@ -269,7 +269,7 @@ if [ "$2" = view ]; then echo '{"body":"desc","number":7}'; else cat > "${rec}/s
 		);
 		expect(calls[1]).toContain("args=pr edit 7 -R acme/widgets --body-file -");
 		expect(readFileSync(join(rec, "stdin-1"), "utf8")).toContain(
-			"generated-by-cyrus",
+			"generated-by-kittu",
 		);
 	});
 
@@ -367,7 +367,7 @@ if [ "$2" = view ]; then echo '{"body":"desc","number":7}'; else cat > "${rec}/s
 				error: (...a: unknown[]) => lines.push(a.join(" ")),
 			} as unknown as ILogger;
 			const sg = new SessionGit(
-				new GitEnv({ cyrusHome: join(fx.root, "home"), ghBinary: stub }),
+				new GitEnv({ kittuHome: join(fx.root, "home"), ghBinary: stub }),
 				[target()],
 				log,
 			);
@@ -393,7 +393,7 @@ if [ "$2" = view ]; then echo '{"body":"desc","number":7}'; else cat > "${rec}/s
 				error: push,
 			} as unknown as ILogger;
 			const sg = new SessionGit(
-				new GitEnv({ cyrusHome: join(fx.root, "home"), ghBinary: stub }),
+				new GitEnv({ kittuHome: join(fx.root, "home"), ghBinary: stub }),
 				[target()],
 				log,
 			);

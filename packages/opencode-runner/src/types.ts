@@ -2,7 +2,7 @@ import type {
 	AgentRunnerConfig,
 	AgentSessionInfo,
 	SDKMessage,
-} from "cyrus-core";
+} from "kittu-core";
 
 export type OpenCodeJsonEvent =
 	| OpenCodeStepStartEvent

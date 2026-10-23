@@ -8,8 +8,8 @@ function makeService(
 		// No Linear token => early "cli mode" return is NOT used; provide a client.
 		getLinearTokenForWorkspace: () => "lin_token",
 		getIssueTracker: () => ({ getClient: () => ({}) }) as any,
-		getCyrusToolsMcpUrl: () => "http://localhost:3456/mcp/cyrus-tools",
-		createCyrusToolsOptions: () => ({}) as any,
+		getKittuToolsMcpUrl: () => "http://localhost:3456/mcp/kittu-tools",
+		createKittuToolsOptions: () => ({}) as any,
 		getSlackBotTokenForRepo,
 	});
 }

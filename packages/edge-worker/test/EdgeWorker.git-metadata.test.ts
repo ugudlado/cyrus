@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EdgeWorker } from "../src/EdgeWorker.js";
 import type { EdgeWorkerConfig } from "../src/types.js";
-import { TEST_CYRUS_HOME } from "./test-dirs.js";
+import { TEST_KITTU_HOME } from "./test-dirs.js";
 
 const git = (cwd: string, cmd: string) =>
 	execSync(`git ${cmd}`, { cwd, stdio: "pipe", encoding: "utf8" });
@@ -26,10 +26,10 @@ describe("EdgeWorker validated git metadata directories", () => {
 	let worker: any;
 
 	beforeEach(() => {
-		root = realpathSync(mkdtempSync(join(tmpdir(), "cyrus-ew-gitmeta-")));
+		root = realpathSync(mkdtempSync(join(tmpdir(), "kittu-ew-gitmeta-")));
 		repo = join(root, "repo");
 		worktree = join(root, "wt");
-		fakeHome = join(root, "home-cyrus");
+		fakeHome = join(root, "home-kittu");
 		mkdirSync(repo);
 		mkdirSync(fakeHome);
 		git(repo, "init -q -b main");
@@ -40,7 +40,7 @@ describe("EdgeWorker validated git metadata directories", () => {
 		git(repo, `worktree add -q -b feature ${worktree}`);
 		worker = new EdgeWorker({
 			proxyUrl: "http://localhost:3000",
-			cyrusHome: TEST_CYRUS_HOME,
+			kittuHome: TEST_KITTU_HOME,
 			repositories: [
 				{
 					id: "repo-1",
@@ -70,7 +70,7 @@ describe("EdgeWorker validated git metadata directories", () => {
 		).toEqual([join(repo, ".git")]);
 	});
 
-	it("yields no entry for a hostile commondir pointing at ~/.cyrus", () => {
+	it("yields no entry for a hostile commondir pointing at ~/.kittu", () => {
 		// objects/ and refs/ stubs make git accept the hostile directory
 		mkdirSync(join(fakeHome, "objects"));
 		mkdirSync(join(fakeHome, "refs"));
