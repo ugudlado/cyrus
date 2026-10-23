@@ -534,6 +534,68 @@
 		"linearWorkspaceSlug": {
 			"type": "string"
 		},
+		"tenants": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1
+					},
+					"linearWorkspaceId": {
+						"type": "string",
+						"minLength": 1
+					},
+					"linear": {
+						"type": "object",
+						"properties": {
+							"clientIdEnv": {
+								"type": "string",
+								"minLength": 1
+							},
+							"clientSecretEnv": {
+								"type": "string",
+								"minLength": 1
+							},
+							"webhookSecretEnv": {
+								"type": "string",
+								"minLength": 1
+							}
+						},
+						"required": ["clientIdEnv", "clientSecretEnv", "webhookSecretEnv"],
+						"additionalProperties": false
+					},
+					"slack": {
+						"type": "object",
+						"properties": {
+							"teamId": {
+								"type": "string",
+								"minLength": 1
+							},
+							"botTokenEnv": {
+								"type": "string",
+								"minLength": 1
+							},
+							"signingSecretEnv": {
+								"type": "string",
+								"minLength": 1
+							}
+						},
+						"required": ["teamId", "botTokenEnv", "signingSecretEnv"],
+						"additionalProperties": false
+					},
+					"repositoryIds": {
+						"type": "array",
+						"items": {
+							"type": "string"
+						}
+					}
+				},
+				"required": ["id", "linearWorkspaceId", "linear", "repositoryIds"],
+				"additionalProperties": false
+			}
+		},
 		"ngrokAuthToken": {
 			"type": "string"
 		},

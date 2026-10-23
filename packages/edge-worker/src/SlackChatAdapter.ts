@@ -58,7 +58,8 @@ export class SlackChatAdapter
 	private repositoryRoutingContext: string;
 	private behavioursPageUrl: string;
 	private logger: ILogger;
-	private selfBotId: string | undefined;
+	/** Cached per Slack team id: each tenant's bot has its own identity. */
+	private selfBotIds = new Map<string, string>();
 
 	constructor(
 		repositoryProvider: ChatRepositoryProvider,
@@ -95,17 +96,24 @@ export class SlackChatAdapter
 	 * it was loaded into process.env after the event was created.
 	 */
 	private getSlackBotToken(event: SlackWebhookEvent): string | undefined {
+		// Tenant events carry their tenant's token; never fall back to the
+		// process-wide token, which belongs to a different Slack workspace.
+		if (event.tenantId) return event.slackBotToken;
 		return event.slackBotToken ?? process.env.SLACK_BOT_TOKEN;
 	}
 
-	private async getSelfBotId(token: string): Promise<string | undefined> {
-		if (this.selfBotId) {
-			return this.selfBotId;
+	private async getSelfBotId(
+		token: string,
+		teamId: string,
+	): Promise<string | undefined> {
+		const cached = this.selfBotIds.get(teamId);
+		if (cached) {
+			return cached;
 		}
 		try {
 			const identity = await new SlackMessageService().getIdentity(token);
-			this.selfBotId = identity.bot_id;
-			return this.selfBotId;
+			if (identity.bot_id) this.selfBotIds.set(teamId, identity.bot_id);
+			return identity.bot_id;
 		} catch (error) {
 			this.logger.warn(
 				`Failed to resolve bot identity: ${error instanceof Error ? error.message : String(error)}`,
@@ -145,9 +153,17 @@ export class SlackChatAdapter
 		return event.eventId;
 	}
 
+	getTenantId(event: SlackWebhookEvent): string | undefined {
+		return event.tenantId;
+	}
+
 	buildSystemPrompt(event: SlackWebhookEvent): string {
 		const repositoryPaths = Array.from(
-			new Set(this.repositoryProvider.getRepositoryPaths().filter(Boolean)),
+			new Set(
+				this.repositoryProvider
+					.getRepositoryPaths(event.tenantId)
+					.filter(Boolean),
+			),
 		).sort();
 		const repositoryAccessSection =
 			repositoryPaths.length > 0
@@ -278,7 +294,7 @@ Supported mrkdwn syntax:
 						: THREAD_CONTEXT_MESSAGE_LIMIT,
 					...(sinceTs ? { oldest: sinceTs } : {}),
 				}),
-				this.getSelfBotId(token),
+				this.getSelfBotId(token, event.teamId),
 			]);
 
 			if (!sinceTs) {

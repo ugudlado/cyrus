@@ -9,6 +9,7 @@ import type {
 	SlackEventTransportConfig,
 	SlackEventTransportEvents,
 	SlackMessageEvent,
+	SlackTenantSecret,
 	SlackVerificationMode,
 	SlackWebhookEvent,
 } from "./types.js";
@@ -81,6 +82,30 @@ export class SlackEventTransport extends EventEmitter {
 	 */
 	private getSlackBotToken(): string | undefined {
 		return process.env.SLACK_BOT_TOKEN;
+	}
+
+	private hasTenants(): boolean {
+		return (this.config.tenantSecrets?.length ?? 0) > 0;
+	}
+
+	/**
+	 * Compute every tenant's HMAC and timingSafeEqual each (no early exit), so
+	 * timing does not reveal which tenant matched.
+	 */
+	private matchTenant(
+		body: string,
+		timestamp: string,
+		signature: string,
+	): SlackTenantSecret | undefined {
+		let matched: SlackTenantSecret | undefined;
+		for (const tenant of this.config.tenantSecrets ?? []) {
+			const secret = tenant.getSigningSecret();
+			if (!secret) continue;
+			if (this.verifySlackSignature(body, timestamp, signature, secret)) {
+				matched ??= tenant;
+			}
+		}
+		return matched;
 	}
 
 	/**
@@ -183,14 +208,31 @@ export class SlackEventTransport extends EventEmitter {
 
 		try {
 			const body = (request as FastifyRequest & { rawBody: string }).rawBody;
-			const isValid = this.verifySlackSignature(
-				body,
-				timestamp,
-				signature,
-				secret,
-			);
-
-			if (!isValid) {
+			let tenant: SlackTenantSecret | undefined;
+			if (this.hasTenants()) {
+				tenant = this.matchTenant(body, timestamp, signature);
+				if (!tenant) {
+					reply.code(401).send({ error: "Invalid webhook signature" });
+					return;
+				}
+				// The signature only proves the sender holds this tenant's secret;
+				// the event must also come from this tenant's Slack workspace.
+				// (url_verification envelopes carry no team_id and only echo the
+				// challenge, so they pass on the signature alone.)
+				const envelope = request.body as SlackEventEnvelope;
+				if (
+					envelope.type !== "url_verification" &&
+					envelope.team_id !== tenant.teamId
+				) {
+					this.logger.warn(
+						`Rejected Slack event for tenant "${tenant.tenantId}": team ${String(envelope.team_id)} is not its workspace`,
+					);
+					reply.code(401).send({ error: "Team does not match tenant" });
+					return;
+				}
+			} else if (
+				!this.verifySlackSignature(body, timestamp, signature, secret)
+			) {
 				reply.code(401).send({ error: "Invalid webhook signature" });
 				return;
 			}
@@ -198,7 +240,7 @@ export class SlackEventTransport extends EventEmitter {
 			// Direct mode: Slack delivers events straight to us with no upstream
 			// gate, so the runtime must self-gate plain messages on its in-memory
 			// thread bindings.
-			this.processAndEmitEvent(request, reply, false);
+			this.processAndEmitEvent(request, reply, false, tenant);
 		} catch (error) {
 			const err = new Error("Slack signature verification failed");
 			if (error instanceof Error) {
@@ -276,6 +318,7 @@ export class SlackEventTransport extends EventEmitter {
 		request: FastifyRequest,
 		reply: FastifyReply,
 		upstreamGated: boolean,
+		tenant?: SlackTenantSecret,
 	): void {
 		const envelope = request.body as SlackEventEnvelope;
 
@@ -348,7 +391,10 @@ export class SlackEventTransport extends EventEmitter {
 		// Token may be undefined during startup transitions (e.g. switching runtimes)
 		// when the env update hasn't been processed yet. Downstream consumers
 		// (SlackChatAdapter) fall back to process.env.SLACK_BOT_TOKEN at usage time.
-		const slackBotToken = this.getSlackBotToken();
+		// In tenant mode the token is the tenant's own, never the process-wide one.
+		const slackBotToken = tenant
+			? tenant.getBotToken()
+			: this.getSlackBotToken();
 
 		const webhookEvent: SlackWebhookEvent = {
 			eventType: event.type,
@@ -356,6 +402,7 @@ export class SlackEventTransport extends EventEmitter {
 			payload: event,
 			slackBotToken,
 			teamId: envelope.team_id,
+			...(tenant ? { tenantId: tenant.tenantId } : {}),
 			upstreamGated,
 		};
 

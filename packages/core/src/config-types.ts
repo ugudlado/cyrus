@@ -30,6 +30,8 @@ export {
 	requireLinearWorkspaceId,
 	type SandboxConfig,
 	SandboxConfigSchema,
+	type TenantConfig,
+	TenantConfigSchema,
 	type UserAccessControlConfig,
 	UserAccessControlConfigSchema,
 	type UserIdentifier,

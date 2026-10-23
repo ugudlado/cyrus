@@ -96,6 +96,18 @@ describe("WorkerService", () => {
 			repositories: [{ ...repository, workspaceBaseDir: "/tmp/workspaces" }],
 			linearWorkspaces: { "ws-1": { linearToken: "lin_token" } },
 			linearWorkspaceSlug: "legacy-slug",
+			tenants: [
+				{
+					id: "tenant-1",
+					linearWorkspaceId: "ws-1",
+					linear: {
+						clientIdEnv: "LINEAR_CLIENT_ID",
+						clientSecretEnv: "LINEAR_CLIENT_SECRET",
+						webhookSecretEnv: "LINEAR_WEBHOOK_SECRET",
+					},
+					repositoryIds: [repository.id],
+				},
+			],
 			ngrokAuthToken: "ngrok-token",
 			stripeCustomerId: "cus_123",
 			claudeDefaultModel: "opus",

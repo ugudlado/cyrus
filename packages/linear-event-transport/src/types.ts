@@ -13,6 +13,17 @@ import type { FastifyInstance } from "fastify";
 export type VerificationMode = "direct" | "proxy";
 
 /**
+ * Per-tenant verification entry for direct mode. A delivery signed with
+ * `secret` is only accepted if its organizationId equals `linearWorkspaceId`.
+ */
+export interface LinearTenantSecret {
+	tenantId: string;
+	linearWorkspaceId: string;
+	/** Resolved at call time (e.g. from process.env); empty = not configured */
+	getSecret: () => string | undefined;
+}
+
+/**
  * Configuration for LinearEventTransport
  */
 export interface LinearEventTransportConfig {
@@ -24,6 +35,11 @@ export interface LinearEventTransportConfig {
 	secret: string;
 	/** Optional IP allowlist for webhook source validation (only used in direct mode) */
 	ipAllowlist?: readonly string[];
+	/**
+	 * Direct mode only: when non-empty, replaces `secret`. Each tenant's secret
+	 * is tried in turn; the matching tenant tags the event.
+	 */
+	tenantSecrets?: readonly LinearTenantSecret[];
 }
 
 /**
@@ -31,7 +47,7 @@ export interface LinearEventTransportConfig {
  */
 export interface LinearEventTransportEvents {
 	/** Emitted when a webhook is received and verified (legacy) */
-	event: (event: AgentEvent) => void;
+	event: (event: AgentEvent, tenantId?: string) => void;
 	/** Emitted when a unified internal message is received */
 	message: (message: InternalMessage) => void;
 	/** Emitted when an error occurs */

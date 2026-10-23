@@ -116,7 +116,15 @@ program
 program
 	.command("self-auth-linear")
 	.description("Authenticate with Linear OAuth directly")
-	.action(async () => {
+	.option(
+		"--tenant <id>",
+		"Authorize this tenant's own Linear OAuth app (stop cyrus-agent first: the callback uses its port)",
+	)
+	.option(
+		"--expect-slug <slug>",
+		"Refuse to save unless the authorized workspace has this urlKey",
+	)
+	.action(async (cmdOptions: { tenant?: string; expectSlug?: string }) => {
 		const opts = program.opts();
 		const app = new Application(
 			opts.cyrusHome,
@@ -124,7 +132,7 @@ program
 			packageJson.version,
 			errorReporter,
 		);
-		await new SelfAuthCommand(app).execute([]);
+		await new SelfAuthCommand(app).execute([], cmdOptions);
 	});
 
 // Self-add-repo command - Clone and add repository

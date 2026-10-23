@@ -13,6 +13,18 @@ import type { FastifyInstance } from "fastify";
 export type SlackVerificationMode = "proxy" | "direct";
 
 /**
+ * Per-tenant Slack credentials for direct mode. Values are resolved at
+ * request time (never stored) so they stay out of long-lived objects.
+ */
+export interface SlackTenantSecret {
+	tenantId: string;
+	/** Slack workspace (team) id this tenant's app is installed in */
+	teamId: string;
+	getSigningSecret: () => string | undefined;
+	getBotToken: () => string | undefined;
+}
+
+/**
  * Configuration for SlackEventTransport
  */
 export interface SlackEventTransportConfig {
@@ -30,6 +42,13 @@ export interface SlackEventTransportConfig {
 	 * its `app_mention`. Omitted ⇒ always enabled.
 	 */
 	isThreadFollowingEnabled?: () => boolean;
+	/**
+	 * Direct mode only: when non-empty, each tenant's signing secret is tried
+	 * and the matching tenant must own the envelope's team_id. Events then
+	 * carry that tenant's bot token and id; the process-wide SLACK_BOT_TOKEN
+	 * is never used.
+	 */
+	tenantSecrets?: readonly SlackTenantSecret[];
 }
 
 /**
@@ -58,6 +77,8 @@ export interface SlackWebhookEvent {
 	slackBotToken?: string;
 	/** Workspace/team ID */
 	teamId: string;
+	/** Tenant that owns this event (tenant mode only) */
+	tenantId?: string;
 	/**
 	 * True when the event arrived via an upstream gate that already verified it
 	 * should be acted on (proxy mode: CYHOST only forwards `message` events for

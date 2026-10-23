@@ -22,6 +22,7 @@ export type {
 	SlackEventType,
 	SlackMessageAttachment,
 	SlackMessageEvent,
+	SlackTenantSecret,
 	SlackUser,
 	SlackVerificationMode,
 	SlackWebhookEvent,

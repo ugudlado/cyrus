@@ -88,6 +88,7 @@ export type {
 	RepositoryConfigPayload,
 	RunnerType,
 	SandboxConfig,
+	TenantConfig,
 	UserAccessControlConfig,
 	UserIdentifier,
 } from "./config-types.js";
@@ -105,6 +106,7 @@ export {
 	requireLinearWorkspaceId,
 	resolvePath,
 	SandboxConfigSchema,
+	TenantConfigSchema,
 	TRUSTED_DOMAINS,
 	UserAccessControlConfigSchema,
 	UserIdentifierSchema,
@@ -287,6 +289,8 @@ export type {
 	ISimpleAgentRunner,
 	ISimpleAgentRunnerConfig,
 } from "./simple-agent-runner-types.js";
+// Tenants (multiple workspaces in one instance)
+export { TenantRegistry, validateTenants } from "./tenants.js";
 // Platform-agnostic webhook type aliases - exported from issue-tracker
 // These are now defined in issue-tracker/types.ts as aliases to Linear SDK webhook types
 // EdgeWorker and other high-level code should use these generic names via issue-tracker exports

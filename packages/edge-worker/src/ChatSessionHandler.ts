@@ -1,6 +1,10 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { SDKMessage, SdkPluginConfig } from "cyrus-claude-runner";
+import type {
+	SandboxSettings,
+	SDKMessage,
+	SdkPluginConfig,
+} from "cyrus-claude-runner";
 import type {
 	AgentRunnerConfig,
 	AgentSessionInfo,
@@ -47,6 +51,12 @@ export interface ChatPlatformAdapter<TEvent> {
 
 	/** Get the unique event ID */
 	getEventId(event: TEvent): string;
+
+	/**
+	 * Tenant that owns this event, if the platform is tenant-aware. Scopes the
+	 * repositories and workspace the chat session can see. Optional.
+	 */
+	getTenantId?(event: TEvent): string | undefined;
 
 	/** Build a platform-specific system prompt */
 	buildSystemPrompt(event: TEvent): string;
@@ -127,6 +137,10 @@ export interface ChatSessionHandlerDeps {
 	getOpenCodeGlobalStateScope?: () =>
 		| OpenCodeConfigOverrides["stateScope"]
 		| undefined;
+	/** Live read of the OS sandbox settings (undefined = sandbox disabled) */
+	getSandboxSettings?: () => SandboxSettings | undefined;
+	/** Live read of the egress proxy CA bundle path */
+	getEgressCaCertPath?: () => string | undefined;
 	onWebhookStart: () => void;
 	onWebhookEnd: () => void;
 	onStateChange: () => Promise<void>;
@@ -343,6 +357,9 @@ export class ChatSessionHandler<TEvent> {
 				sessionId,
 				systemPrompt,
 				sessionId,
+				undefined,
+				undefined,
+				this.adapter.getTenantId?.(event),
 			);
 
 			const runner = this.deps.createRunner(
@@ -550,6 +567,7 @@ export class ChatSessionHandler<TEvent> {
 			sessionId,
 			resumeSessionId,
 			runnerType,
+			this.adapter.getTenantId?.(event),
 		);
 
 		const runner = this.deps.createRunner(runnerConfig, runnerType);
@@ -769,6 +787,7 @@ export class ChatSessionHandler<TEvent> {
 		sessionId: string,
 		resumeSessionId?: string,
 		runnerType?: RunnerType,
+		tenantId?: string,
 	): Promise<AgentRunnerConfig> {
 		const sessionLogger = this.logger.withContext({
 			sessionId,
@@ -777,12 +796,12 @@ export class ChatSessionHandler<TEvent> {
 
 		// Read live values from the provider at session-build time
 		const provider = this.deps.chatRepositoryProvider;
-		const repository = provider.getDefaultRepository();
-		const repositoryPaths = provider.getRepositoryPaths();
+		const repository = provider.getDefaultRepository(tenantId);
+		const repositoryPaths = provider.getRepositoryPaths(tenantId);
 		const skillsConfig = this.deps.resolveSkillsConfig
 			? await this.deps.resolveSkillsConfig({ repository, repositoryPaths })
 			: {};
-		const linearWorkspaceId = provider.getDefaultLinearWorkspaceId();
+		const linearWorkspaceId = provider.getDefaultLinearWorkspaceId(tenantId);
 		if (linearWorkspaceId && this.deps.ensureLinearTokenFresh) {
 			await this.deps.ensureLinearTokenFresh(linearWorkspaceId);
 		}
@@ -794,6 +813,8 @@ export class ChatSessionHandler<TEvent> {
 			sessionId,
 			resumeSessionId,
 			runnerType,
+			sandboxSettings: this.deps.getSandboxSettings?.(),
+			egressCaCertPath: this.deps.getEgressCaCertPath?.(),
 			cyrusHome: this.deps.cyrusHome,
 			platformName: this.adapter.platformName,
 			linearWorkspaceId,

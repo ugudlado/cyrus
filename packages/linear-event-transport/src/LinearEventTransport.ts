@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import {
 	LinearWebhookClient,
@@ -10,6 +11,7 @@ import { LinearMessageTranslator } from "./LinearMessageTranslator.js";
 import type {
 	LinearEventTransportConfig,
 	LinearEventTransportEvents,
+	LinearTenantSecret,
 } from "./types.js";
 
 export declare interface LinearEventTransport {
@@ -43,6 +45,14 @@ export class LinearEventTransport
 {
 	private config: LinearEventTransportConfig;
 	private linearWebhookClient: LinearWebhookClient | null = null;
+	/**
+	 * Cached per-tenant clients, keyed by tenant id. Only a SHA-256 of the
+	 * secret is kept (to notice rotation), never the secret itself.
+	 */
+	private tenantClients = new Map<
+		string,
+		{ secretHash: string; client: LinearWebhookClient }
+	>();
 	private logger: ILogger;
 	private messageTranslator: LinearMessageTranslator;
 	private translationContext: TranslationContext;
@@ -59,9 +69,42 @@ export class LinearEventTransport
 		this.translationContext = translationContext ?? {};
 
 		// Initialize Linear webhook client for direct mode
-		if (config.verificationMode === "direct") {
+		if (config.verificationMode === "direct" && !this.hasTenants()) {
 			this.linearWebhookClient = new LinearWebhookClient(config.secret);
 		}
+	}
+
+	private hasTenants(): boolean {
+		return (this.config.tenantSecrets?.length ?? 0) > 0;
+	}
+
+	/**
+	 * Try every tenant secret (no early exit) and return the first matching
+	 * tenant. One LinearWebhookClient per tenant keeps the SDK's timestamp check.
+	 */
+	private matchTenant(
+		body: Buffer,
+		signature: string,
+	): LinearTenantSecret | undefined {
+		let matched: LinearTenantSecret | undefined;
+		for (const tenant of this.config.tenantSecrets ?? []) {
+			const secret = tenant.getSecret();
+			if (!secret) continue;
+			let entry = this.tenantClients.get(tenant.tenantId);
+			const secretHash = createHash("sha256").update(secret).digest("hex");
+			if (!entry || entry.secretHash !== secretHash) {
+				entry = { secretHash, client: new LinearWebhookClient(secret) };
+				this.tenantClients.set(tenant.tenantId, entry);
+			}
+			let ok = false;
+			try {
+				ok = entry.client.verify(body, signature);
+			} catch {
+				ok = false;
+			}
+			if (ok && !matched) matched = tenant;
+		}
+		return matched;
 	}
 
 	/**
@@ -129,7 +172,7 @@ export class LinearEventTransport
 		request: FastifyRequest,
 		reply: FastifyReply,
 	): Promise<void> {
-		if (!this.linearWebhookClient) {
+		if (!this.linearWebhookClient && !this.hasTenants()) {
 			reply.code(500).send({ error: "Linear webhook client not initialized" });
 			return;
 		}
@@ -162,17 +205,41 @@ export class LinearEventTransport
 			const bodyBuffer = rawBody
 				? Buffer.from(rawBody)
 				: Buffer.from(JSON.stringify(request.body));
-			const isValid = this.linearWebhookClient.verify(bodyBuffer, signature);
-
-			if (!isValid) {
-				reply.code(401).send({ error: "Invalid webhook signature" });
-				return;
+			let tenantId: string | undefined;
+			if (this.hasTenants()) {
+				const tenant = this.matchTenant(bodyBuffer, signature);
+				if (!tenant) {
+					reply.code(401).send({ error: "Invalid webhook signature" });
+					return;
+				}
+				// A valid signature only authorizes events from that tenant's workspace
+				const orgId = (request.body as { organizationId?: unknown } | null)
+					?.organizationId;
+				if (orgId !== tenant.linearWorkspaceId) {
+					this.logger.warn(
+						`Dropped Linear webhook for tenant "${tenant.tenantId}": organizationId missing or not this tenant's workspace`,
+					);
+					reply.code(200).send({ success: true });
+					return;
+				}
+				tenantId = tenant.tenantId;
+			} else {
+				// biome-ignore lint/style/noNonNullAssertion: guarded above
+				const isValid = this.linearWebhookClient!.verify(bodyBuffer, signature);
+				if (!isValid) {
+					reply.code(401).send({ error: "Invalid webhook signature" });
+					return;
+				}
 			}
 
 			const payload = request.body as LinearWebhookPayload;
 
 			// Emit "event" for legacy IAgentEventTransport compatibility
-			this.emit("event", payload);
+			if (tenantId === undefined) {
+				this.emit("event", payload);
+			} else {
+				this.emit("event", payload, tenantId);
+			}
 
 			// Emit "message" with translated internal message
 			this.emitMessage(payload);

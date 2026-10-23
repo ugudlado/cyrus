@@ -29,6 +29,11 @@ export interface McpConfigServiceDeps {
 	getCyrusToolsMcpUrl: () => string;
 	/** Factory that creates CyrusToolsOptions with session callbacks */
 	createCyrusToolsOptions: (parentSessionId?: string) => CyrusToolsOptions;
+	/**
+	 * Tenant mode: the Slack bot token for the repository's tenant (undefined =
+	 * no Slack MCP). When omitted, the process-wide SLACK_BOT_TOKEN is used.
+	 */
+	getSlackBotTokenForRepo?: (repoId: string) => string | undefined;
 }
 
 /**
@@ -133,7 +138,11 @@ export class McpConfigService {
 		// Inject the Slack MCP server whenever SLACK_BOT_TOKEN is available —
 		// per-platform availability is enforced upstream by the allowed-tools
 		// array. https://github.com/korotovsky/slack-mcp-server
-		const slackBotToken = process.env.SLACK_BOT_TOKEN?.trim();
+		const slackBotToken = (
+			this.deps.getSlackBotTokenForRepo
+				? this.deps.getSlackBotTokenForRepo(repoId)
+				: process.env.SLACK_BOT_TOKEN
+		)?.trim();
 		if (slackBotToken) {
 			mcpConfig.slack = {
 				command: "npx",

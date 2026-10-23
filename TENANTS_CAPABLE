@@ -1,0 +1,1 @@
+This fork supports tenants (per-workspace Linear/Slack apps, plan A28 E1-E6). Checked by kittu boat/setup.sh before writing tenants into config.json.

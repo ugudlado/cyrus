@@ -69,10 +69,13 @@ const RELOAD_MERGED_KEYS = [
  * whose replacements are merged instead (`defaultAllowedTools` is folded
  * into `linearAllowedTools` by `migrateEdgeConfig` at startup;
  * `linearWorkspaceSlug` migrated into `linearWorkspaces` entries).
+ * `tenants` is startup-only: the TenantRegistry and transports are built once
+ * from the startup config, so a tenant change needs a restart.
  */
 const RELOAD_EXEMPT_KEYS = [
 	"linearWorkspaceSlug",
 	"defaultAllowedTools",
+	"tenants",
 ] as const satisfies readonly (keyof EdgeConfig)[];
 
 /**

@@ -715,6 +715,83 @@ describe("SlackEventTransport", () => {
 		});
 	});
 
+	describe("tenant mode (direct)", () => {
+		const secrets: Record<string, string> = { a: "secret-a", b: "secret-b" };
+		let transport: SlackEventTransport;
+		const eventListener = vi.fn();
+
+		beforeEach(() => {
+			eventListener.mockClear();
+			transport = new SlackEventTransport({
+				fastifyServer:
+					mockFastify as unknown as SlackEventTransportConfig["fastifyServer"],
+				verificationMode: "direct",
+				secret: "ignored-global",
+				tenantSecrets: [
+					{
+						tenantId: "a",
+						teamId: "T0001",
+						getSigningSecret: () => secrets.a,
+						getBotToken: () => "xoxb-a",
+					},
+					{
+						tenantId: "b",
+						teamId: "T0002",
+						getSigningSecret: () => secrets.b,
+						getBotToken: () => "xoxb-b",
+					},
+				],
+			});
+			transport.on("event", eventListener);
+			transport.register();
+		});
+
+		const send = async (body: unknown, secret: string) => {
+			const request = createMockRequest(body);
+			const { timestamp, signature } = signSlackRequest(
+				request.rawBody,
+				secret,
+			);
+			request.headers["x-slack-request-timestamp"] = timestamp;
+			request.headers["x-slack-signature"] = signature;
+			const reply = createMockReply();
+			await mockFastify.routes["/slack-webhook"]!(request, reply);
+			return reply;
+		};
+
+		it("tags the event with the matching tenant and its bot token", async () => {
+			const reply = await send(testEventEnvelope, "secret-a");
+			expect(reply.code).toHaveBeenCalledWith(200);
+			expect(eventListener).toHaveBeenCalledWith(
+				expect.objectContaining({
+					tenantId: "a",
+					slackBotToken: "xoxb-a",
+					teamId: "T0001",
+				}),
+			);
+		});
+
+		it("rejects a valid signature from another tenant's workspace (team mismatch)", async () => {
+			const reply = await send(testEventEnvelope, "secret-b");
+			expect(reply.code).toHaveBeenCalledWith(401);
+			expect(eventListener).not.toHaveBeenCalled();
+		});
+
+		it("rejects the global secret and unknown signatures", async () => {
+			const reply = await send(testEventEnvelope, "ignored-global");
+			expect(reply.code).toHaveBeenCalledWith(401);
+			expect(eventListener).not.toHaveBeenCalled();
+		});
+
+		it("answers a signed url_verification challenge", async () => {
+			const reply = await send(testUrlVerificationEnvelope, "secret-b");
+			expect(reply.code).toHaveBeenCalledWith(200);
+			expect(reply.send).toHaveBeenCalledWith({
+				challenge: testUrlVerificationEnvelope.challenge,
+			});
+		});
+	});
+
 	describe("runtime mode switching (proxy → direct)", () => {
 		const runtimeSigningSecret = "runtime-slack-signing-secret";
 		let transport: SlackEventTransport;

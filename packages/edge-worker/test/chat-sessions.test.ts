@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { getReadOnlyTools } from "cyrus-claude-runner";
-import type { RepositoryConfig } from "cyrus-core";
+import { type RepositoryConfig, TenantRegistry } from "cyrus-core";
 import {
 	type SlackMessageAttachment,
 	SlackMessageService,
@@ -1030,6 +1030,158 @@ describe("ChatSessionHandler session resume", () => {
 
 		expect(capturedConfigs[1].runnerType).toBe("opencode");
 		expect(capturedConfigs[1].resumeSessionId).toBe("opencode-chat-session");
+	});
+});
+
+describe("ChatSessionHandler with two tenants (Slack)", () => {
+	const repo = (id: string, path: string) =>
+		({
+			id,
+			name: id,
+			repositoryPath: path,
+			baseBranch: "main",
+			workspaceBaseDir: "/tmp",
+		}) as RepositoryConfig;
+	const tenant = (id: string, repositoryIds: string[]) => ({
+		id,
+		linearWorkspaceId: `ws-${id}`,
+		linear: { clientIdEnv: "A", clientSecretEnv: "B", webhookSecretEnv: "C" },
+		slack: { teamId: `T_${id}`, botTokenEnv: "T", signingSecretEnv: "S" },
+		repositoryIds,
+	});
+
+	const slackEvent = (tenantId: string) =>
+		({
+			eventType: "app_mention",
+			eventId: `Ev-${tenantId}`,
+			teamId: `T_${tenantId}`,
+			tenantId,
+			slackBotToken: `xoxb-${tenantId}`,
+			payload: {
+				type: "app_mention",
+				user: "U1",
+				text: "<@UBOT> hello",
+				ts: "1700000000.000100",
+				channel: "C1",
+			},
+		}) as any;
+
+	it("builds tenant B's chat config from B's repositories and workspace only", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi
+				.fn()
+				.mockResolvedValue({ ok: true, json: async () => ({ ok: false }) }),
+		);
+		const repos = new Map<string, RepositoryConfig>([
+			["a1", repo("a1", "/repos/a1")],
+			["a2", repo("a2", "/repos/a2")],
+			["b1", repo("b1", "/repos/b1")],
+		]);
+		const provider = new LiveChatRepositoryProvider(
+			repos,
+			() => ({ "ws-a": {}, "ws-b": {} }),
+			new TenantRegistry([tenant("a", ["a1", "a2"]), tenant("b", ["b1"])]),
+		);
+		const buildChatConfig = vi.fn(
+			(input: any) =>
+				createMockRunnerConfigBuilder().buildChatConfig(input) as any,
+		);
+		const createRunner = vi.fn(
+			() =>
+				({
+					supportsStreamingInput: false,
+					start: vi.fn().mockResolvedValue({ sessionId: "s" }),
+					stop: vi.fn(),
+					isRunning: vi.fn().mockReturnValue(false),
+					isStreaming: vi.fn().mockReturnValue(false),
+					addStreamMessage: vi.fn(),
+					getMessages: vi.fn().mockReturnValue([]),
+				}) as any,
+		);
+		const handler = new ChatSessionHandler(new SlackChatAdapter(provider), {
+			cyrusHome: TEST_CYRUS_CHAT,
+			chatRepositoryProvider: provider,
+			runnerConfigBuilder: {
+				buildChatConfig,
+				buildIssueConfig: vi.fn(),
+			} as unknown as RunnerConfigBuilder,
+			createRunner,
+			getSandboxSettings: () => ({ enabled: true }) as any,
+			onWebhookStart: vi.fn(),
+			onWebhookEnd: vi.fn(),
+			onStateChange: vi.fn().mockResolvedValue(undefined),
+			onClaudeError: vi.fn(),
+		});
+
+		await handler.handleEvent(slackEvent("b"));
+
+		expect(buildChatConfig).toHaveBeenCalledTimes(1);
+		const input = buildChatConfig.mock.calls[0]![0];
+		expect(input.repositoryPaths).toEqual(["/repos/b1"]);
+		expect(input.repository.id).toBe("b1");
+		expect(input.linearWorkspaceId).toBe("ws-b");
+		expect(input.sandboxSettings).toEqual({ enabled: true });
+		vi.unstubAllGlobals();
+	});
+});
+
+describe("LiveChatRepositoryProvider with tenants", () => {
+	const repo = (id: string, path: string) =>
+		({
+			id,
+			name: id,
+			repositoryPath: path,
+			baseBranch: "main",
+			workspaceBaseDir: "/tmp",
+		}) as RepositoryConfig;
+	const tenant = (id: string, repositoryIds: string[]) => ({
+		id,
+		linearWorkspaceId: `ws-${id}`,
+		linear: {
+			clientIdEnv: "A",
+			clientSecretEnv: "B",
+			webhookSecretEnv: "C",
+		},
+		repositoryIds,
+	});
+
+	function setup() {
+		const repos = new Map<string, RepositoryConfig>([
+			["jus", repo("jus", "/repos/jus")],
+			["cyr", repo("cyr", "/repos/cyr")],
+			["lap", repo("lap", "/repos/lap")],
+		]);
+		const registry = new TenantRegistry([
+			tenant("jusplay", ["cyr", "jus"]),
+			tenant("lapse", ["lap"]),
+		]);
+		const provider = new LiveChatRepositoryProvider(
+			repos,
+			() => ({ "ws-jusplay": {}, "ws-lapse": {} }),
+			registry,
+		);
+		return provider;
+	}
+
+	it("scopes paths, default repo and workspace to the tenant", () => {
+		const provider = setup();
+		expect(provider.getRepositoryPaths("jusplay")).toEqual([
+			"/repos/cyr",
+			"/repos/jus",
+		]);
+		expect(provider.getDefaultRepository("jusplay")?.id).toBe("cyr");
+		expect(provider.getDefaultLinearWorkspaceId("jusplay")).toBe("ws-jusplay");
+		expect(provider.getRepositoryPaths("lapse")).toEqual(["/repos/lap"]);
+		expect(provider.getDefaultLinearWorkspaceId("lapse")).toBe("ws-lapse");
+	});
+
+	it("an unknown tenant sees nothing; no tenant id sees everything", () => {
+		const provider = setup();
+		expect(provider.getRepositoryPaths("ghost")).toEqual([]);
+		expect(provider.getDefaultRepository("ghost")).toBeUndefined();
+		expect(provider.getDefaultLinearWorkspaceId("ghost")).toBeUndefined();
+		expect(provider.getRepositoryPaths()).toHaveLength(3);
 	});
 });
 

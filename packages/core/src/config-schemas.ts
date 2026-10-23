@@ -324,6 +324,34 @@ export const LinearWorkspaceConfigSchema = z.object({
 });
 
 /**
+ * A tenant binds one Linear workspace, optionally one Slack workspace, and a
+ * set of repositories together so an event in one tenant can only reach that
+ * tenant's repositories and credentials. Only env var NAMES are stored here;
+ * values are read from process.env at use time.
+ */
+export const TenantConfigSchema = z.object({
+	/** Unique tenant id, e.g. "jusplay" */
+	id: z.string().min(1),
+	/** Linear workspace (organization) id this tenant owns */
+	linearWorkspaceId: z.string().min(1),
+	linear: z.object({
+		clientIdEnv: z.string().min(1),
+		clientSecretEnv: z.string().min(1),
+		webhookSecretEnv: z.string().min(1),
+	}),
+	/** Optional Slack workspace; omit for a tenant without Slack chat */
+	slack: z
+		.object({
+			teamId: z.string().min(1),
+			botTokenEnv: z.string().min(1),
+			signingSecretEnv: z.string().min(1),
+		})
+		.optional(),
+	/** RepositoryConfig.id values owned by this tenant (first = chat default) */
+	repositoryIds: z.array(z.string()),
+});
+
+/**
  * Configuration for a single repository/workspace pair
  */
 export const RepositoryConfigSchema = z.object({
@@ -394,6 +422,13 @@ export const EdgeConfigSchema = z.object({
 
 	/** @deprecated Migrated into linearWorkspaces entries. */
 	linearWorkspaceSlug: z.string().optional(),
+
+	/**
+	 * Tenants sharing this Cyrus instance. Absent = single implicit tenant
+	 * using the global env vars (LINEAR_WEBHOOK_SECRET, SLACK_BOT_TOKEN, ...).
+	 * Startup-only: changes need a restart.
+	 */
+	tenants: z.array(TenantConfigSchema).optional(),
 
 	/** Ngrok auth token for tunnel creation */
 	ngrokAuthToken: z.string().optional(),
@@ -707,6 +742,7 @@ export type UserIdentifier = z.infer<typeof UserIdentifierSchema>;
 export type UserAccessControlConfig = z.infer<
 	typeof UserAccessControlConfigSchema
 >;
+export type TenantConfig = z.infer<typeof TenantConfigSchema>;
 export type LinearWorkspaceConfig = z.infer<typeof LinearWorkspaceConfigSchema>;
 export type OpenCodeConfigOverrides = z.infer<typeof OpenCodeConfigSchema>;
 export type RepositoryConfig = z.infer<typeof RepositoryConfigSchema>;

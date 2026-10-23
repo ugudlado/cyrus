@@ -81,6 +81,8 @@ import {
 	PersistenceManager,
 	requireLinearWorkspaceId,
 	resolvePath,
+	TenantRegistry,
+	validateTenants,
 	WebhookIpValidator,
 } from "cyrus-core";
 import { CursorRunner } from "cyrus-cursor-runner";
@@ -223,6 +225,8 @@ type CyrusToolsMcpContext = {
  */
 export class EdgeWorker extends EventEmitter {
 	private config: EdgeWorkerConfig;
+	/** Built once from the startup config; tenant changes need a restart. */
+	private tenantRegistry: TenantRegistry;
 	private repositories: Map<string, RepositoryConfig> = new Map(); // repository 'id' (internal, stored in config.json) mapped to the full repo config
 	private agentSessionManager: AgentSessionManager; // Single instance managing all agent sessions across repositories
 	private activitySinks: Map<string, IActivitySink> = new Map(); // Maps Linear workspace ID to activity sink (one per workspace, mirrors issueTrackers)
@@ -360,6 +364,35 @@ export class EdgeWorker extends EventEmitter {
 	constructor(config: EdgeWorkerConfig) {
 		super();
 		this.config = EdgeWorker.normalizeConfigPaths(config);
+		const tenantProblems = validateTenants(config);
+		if (tenantProblems.length > 0) {
+			throw new Error(`Invalid tenants config: ${tenantProblems.join("; ")}`);
+		}
+		this.tenantRegistry = TenantRegistry.fromConfig(config);
+		if (this.tenantRegistry.enabled) {
+			// Per-tenant verification only exists in direct mode; in proxy mode a
+			// single shared secret would silently turn tenant isolation off.
+			const isTrue = (name: string) =>
+				process.env[name]?.toLowerCase().trim() === "true";
+			const missing = ["LINEAR_DIRECT_WEBHOOKS", "CYRUS_HOST_EXTERNAL"].filter(
+				(name) => !isTrue(name),
+			);
+			if (missing.length > 0) {
+				throw new Error(
+					`Tenants are configured but ${missing.join(" and ")} ${missing.length > 1 ? "are" : "is"} not "true"; per-tenant webhook verification would be off`,
+				);
+			}
+			const owned = new Set(
+				this.tenantRegistry.list().flatMap((t) => t.repositoryIds),
+			);
+			for (const repo of config.repositories) {
+				if (!owned.has(repo.id)) {
+					createLogger({ component: "EdgeWorker" }).warn(
+						`Repository ${repo.id} belongs to no tenant; tenant events cannot reach it`,
+					);
+				}
+			}
+		}
 		this.cyrusHome = config.cyrusHome;
 		this.githubTokenStore = new GitHubTokenStore(this.cyrusHome);
 		this.logger = createLogger({ component: "EdgeWorker" });
@@ -622,6 +655,14 @@ export class EdgeWorker extends EventEmitter {
 			this.logger,
 		);
 		this.mcpConfigService = new McpConfigService({
+			getSlackBotTokenForRepo: this.tenantRegistry.enabled
+				? (repoId) => {
+						const slack = this.tenantRegistry.byRepositoryId(repoId)?.slack;
+						return slack
+							? this.tenantRegistry.secret(slack.botTokenEnv)
+							: undefined;
+					}
+				: undefined,
 			getLinearTokenForWorkspace: (workspaceId) =>
 				this.getLinearTokenForWorkspace(workspaceId),
 			getIssueTracker: (workspaceId) =>
@@ -870,6 +911,17 @@ export class EdgeWorker extends EventEmitter {
 				process.env.LINEAR_DIRECT_WEBHOOKS?.toLowerCase() === "true";
 			const verificationMode = useDirectWebhooks ? "direct" : "proxy";
 
+			// Tenant mode (direct webhooks only): one webhook secret per tenant
+			const tenantSecrets =
+				useDirectWebhooks && this.tenantRegistry.enabled
+					? this.tenantRegistry.list().map((tenant) => ({
+							tenantId: tenant.id,
+							linearWorkspaceId: tenant.linearWorkspaceId,
+							getSecret: () =>
+								this.tenantRegistry.secret(tenant.linear.webhookSecretEnv),
+						}))
+					: undefined;
+
 			// Get appropriate secret based on mode
 			const secret = useDirectWebhooks
 				? process.env.LINEAR_WEBHOOK_SECRET || ""
@@ -883,11 +935,19 @@ export class EdgeWorker extends EventEmitter {
 					verificationMode === "direct" && this.webhookIpValidator.isEnabled()
 						? this.webhookIpValidator.getAllowlist("linear")
 						: undefined,
+				tenantSecrets,
 			});
 
 			// Listen for legacy webhook events (deprecated, kept for backward compatibility)
-			this.linearEventTransport.on("event", (event: AgentEvent) => {
-				const repos = Array.from(this.repositories.values());
+			this.linearEventTransport.on("event", (event: AgentEvent, tenantId) => {
+				let repos = Array.from(this.repositories.values());
+				if (tenantId !== undefined) {
+					// Only the matched tenant's repositories may handle this event
+					const owned = new Set(
+						this.tenantRegistry.byId(tenantId)?.repositoryIds ?? [],
+					);
+					repos = repos.filter((repo) => owned.has(repo.id));
+				}
 				this.handleWebhook(event as unknown as Webhook, repos);
 			});
 
@@ -1180,6 +1240,8 @@ export class EdgeWorker extends EventEmitter {
 			},
 			getOpenCodeGlobalConfig: () => this.config.opencode?.config,
 			getOpenCodeGlobalStateScope: () => this.config.opencode?.stateScope,
+			getSandboxSettings: () => this.sdkSandboxSettings ?? undefined,
+			getEgressCaCertPath: () => this.egressCaCertPath ?? undefined,
 			onWebhookStart: () => {
 				this.activeWebhookCount++;
 			},
@@ -1285,6 +1347,7 @@ export class EdgeWorker extends EventEmitter {
 		const chatRepositoryProvider = new LiveChatRepositoryProvider(
 			this.repositories,
 			() => this.config.linearWorkspaces || {},
+			this.tenantRegistry,
 		);
 
 		const routingContext =
@@ -1333,17 +1396,39 @@ export class EdgeWorker extends EventEmitter {
 		const hasSlackSigningSecret =
 			process.env.SLACK_SIGNING_SECRET != null &&
 			process.env.SLACK_SIGNING_SECRET !== "";
-		const useDirectSlackWebhooks = isExternalHost && hasSlackSigningSecret;
+		// Tenant mode: one Slack app per tenant that has `slack`; the global
+		// SLACK_SIGNING_SECRET is not consulted.
+		const slackTenants = this.tenantRegistry
+			.list()
+			.filter((tenant) => tenant.slack !== undefined);
+		const useTenantSlack = isExternalHost && slackTenants.length > 0;
+		const useDirectSlackWebhooks =
+			useTenantSlack || (isExternalHost && hasSlackSigningSecret);
 
 		const slackVerificationMode = useDirectSlackWebhooks ? "direct" : "proxy";
-		const slackSecret = useDirectSlackWebhooks
-			? process.env.SLACK_SIGNING_SECRET!
-			: process.env.CYRUS_API_KEY || "";
+		const slackSecret = useTenantSlack
+			? ""
+			: useDirectSlackWebhooks
+				? process.env.SLACK_SIGNING_SECRET!
+				: process.env.CYRUS_API_KEY || "";
 
 		this.slackEventTransport = new SlackEventTransport({
 			fastifyServer: this.sharedApplicationServer.getFastifyInstance(),
 			verificationMode: slackVerificationMode,
 			secret: slackSecret,
+			tenantSecrets: useTenantSlack
+				? slackTenants.map((tenant) => ({
+						tenantId: tenant.id,
+						// biome-ignore lint/style/noNonNullAssertion: filtered above
+						teamId: tenant.slack!.teamId,
+						getSigningSecret: () =>
+							// biome-ignore lint/style/noNonNullAssertion: filtered above
+							this.tenantRegistry.secret(tenant.slack!.signingSecretEnv),
+						getBotToken: () =>
+							// biome-ignore lint/style/noNonNullAssertion: filtered above
+							this.tenantRegistry.secret(tenant.slack!.botTokenEnv),
+					}))
+				: undefined,
 			// Live read so the per-team toggle (hot-reloaded via config) and the
 			// env kill-switch both take effect without rebuilding the transport.
 			isThreadFollowingEnabled: () => this.isSlackThreadFollowingEnabled(),
@@ -8023,12 +8108,17 @@ ${input.userComment}
 	private buildOAuthConfig(
 		linearWorkspaceId: string,
 	): LinearOAuthConfig | undefined {
-		const clientId = process.env.LINEAR_CLIENT_ID;
-		const clientSecret = process.env.LINEAR_CLIENT_SECRET;
+		// A workspace owned by a tenant refreshes with that tenant's OAuth app
+		// only; otherwise the global LINEAR_CLIENT_* env vars apply.
+		const tenant = this.tenantRegistry.byLinearWorkspaceId(linearWorkspaceId);
+		const idEnv = tenant?.linear.clientIdEnv ?? "LINEAR_CLIENT_ID";
+		const secretEnv = tenant?.linear.clientSecretEnv ?? "LINEAR_CLIENT_SECRET";
+		const clientId = process.env[idEnv];
+		const clientSecret = process.env[secretEnv];
 
 		if (!clientId || !clientSecret) {
 			this.logger.warn(
-				"LINEAR_CLIENT_ID and LINEAR_CLIENT_SECRET not set, token refresh disabled",
+				`${idEnv} and ${secretEnv} not set, token refresh disabled`,
 			);
 			return undefined;
 		}

@@ -91,6 +91,101 @@ describe("LinearEventTransport", () => {
 		});
 	});
 
+	describe("tenant secrets in direct mode", () => {
+		let server: FastifyInstance;
+		const onEvent = vi.fn();
+		const onMessage = vi.fn();
+		const secrets: Record<string, string | undefined> = {
+			jusplay: "jusplay-secret",
+			lapse: "lapse-secret",
+		};
+		const sign = (secret: string, body: unknown) =>
+			createHmac("sha256", secret).update(JSON.stringify(body)).digest("hex");
+		const post = (secret: string, body: unknown) =>
+			server.inject({
+				method: "POST",
+				url: "/linear-webhook",
+				headers: { "linear-signature": sign(secret, body) },
+				payload: body as object,
+			});
+
+		beforeEach(() => {
+			onEvent.mockClear();
+			onMessage.mockClear();
+			server = Fastify({ trustProxy: true });
+			const transport = new LinearEventTransport({
+				fastifyServer: server,
+				verificationMode: "direct",
+				secret: "ignored-global-secret",
+				tenantSecrets: ["jusplay", "lapse"].map((id) => ({
+					tenantId: id,
+					linearWorkspaceId: `org-${id}`,
+					getSecret: () => secrets[id],
+				})),
+			});
+			transport.on("event", onEvent);
+			transport.on("message", onMessage);
+			transport.register();
+		});
+
+		afterEach(async () => {
+			await server.close();
+		});
+
+		it("tags the event with the tenant whose secret signed it", async () => {
+			const body = {
+				type: "Issue",
+				action: "create",
+				organizationId: "org-lapse",
+			};
+			const res = await post("lapse-secret", body);
+			expect(res.statusCode).toBe(200);
+			expect(onEvent).toHaveBeenCalledWith(body, "lapse");
+		});
+
+		it("drops cross-tenant replay (lapse secret, jusplay organizationId)", async () => {
+			const res = await post("lapse-secret", {
+				type: "Issue",
+				action: "create",
+				organizationId: "org-jusplay",
+			});
+			expect(res.statusCode).toBe(200);
+			expect(onEvent).not.toHaveBeenCalled();
+			expect(onMessage).not.toHaveBeenCalled();
+		});
+
+		it("drops events with a missing organizationId", async () => {
+			const res = await post("jusplay-secret", {
+				type: "Issue",
+				action: "create",
+			});
+			expect(res.statusCode).toBe(200);
+			expect(onEvent).not.toHaveBeenCalled();
+		});
+
+		it("picks up a rotated tenant secret without a restart", async () => {
+			const body = {
+				type: "Issue",
+				action: "create",
+				organizationId: "org-lapse",
+			};
+			expect((await post("lapse-secret-v2", body)).statusCode).toBe(401);
+			secrets.lapse = "lapse-secret-v2";
+			expect((await post("lapse-secret-v2", body)).statusCode).toBe(200);
+			expect((await post("lapse-secret", body)).statusCode).toBe(401);
+			secrets.lapse = "lapse-secret";
+		});
+
+		it("rejects the unlisted global secret and unset tenant secrets", async () => {
+			const body = { type: "Issue", organizationId: "org-lapse" };
+			expect((await post("ignored-global-secret", body)).statusCode).toBe(401);
+			secrets.lapse = undefined;
+			expect((await post("lapse-secret", body)).statusCode).toBe(401);
+			secrets.lapse = "lapse-secret";
+			expect(onEvent).not.toHaveBeenCalled();
+		});
+	});
+
 	describe("register", () => {
 		it("registers POST /linear-webhook and a deprecated /webhook alias", () => {
 			const post = vi.fn();

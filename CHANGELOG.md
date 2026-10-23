@@ -9,6 +9,9 @@ All notable changes to this project will be documented in this file.
 
 - Self-hosted Cyrus can read its GitHub token from a file (`GITHUB_TOKEN_FILE`) that is re-read on every use, so short-lived tokens refreshed by an external minter keep working. It is used after GitHub App tokens and before the `GITHUB_TOKEN` env var, which remains the fallback if the file is missing or empty.
 
+- One Cyrus can serve several tenants (a Linear workspace, an optional Slack workspace and the repositories they own) via a new optional `tenants` section in `config.json`. Each tenant has its own Linear OAuth app, webhook secret and Slack app; a webhook or Slack message signed for one tenant can only reach that tenant's repositories, tokens and chat. `cyrus self-auth-linear --tenant <id>` authorizes a tenant's own Linear app (and no longer prints any part of the client id or token). Without `tenants`, nothing changes. Tenant changes need a restart.
+- Slack chat sessions now run inside the OS sandbox when the sandbox is enabled: they can read only their own workspace, the shared chat memory and the repositories they are allowed to see, and write only to the first two.
+
 ### Fixed
 - Recreating a worktree for an issue whose branch already exists on the remote now continues from `origin/<branch>` (and fast-forwards a stale local branch of the same name) instead of starting a fresh branch from the base branch. Local-only commits are never discarded.
 - Moving a Linear issue between non-terminal statuses no longer stops its sessions and deletes its worktree: Cyrus now confirms the issue is actually Done or Canceled (or deleted) before tearing down, and does nothing if it cannot check.

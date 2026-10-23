@@ -403,6 +403,177 @@ describe("SelfAuthCommand", () => {
 		});
 	});
 
+	describe("--tenant", () => {
+		const tenantEntry = {
+			id: "lapse",
+			linearWorkspaceId: "ws-lapse",
+			linear: {
+				clientIdEnv: "CFG_CLIENT_ID",
+				clientSecretEnv: "CFG_CLIENT_SECRET",
+				webhookSecretEnv: "CFG_WEBHOOK",
+			},
+			repositoryIds: [],
+		};
+
+		async function runFlow(
+			config: object,
+			workspace: { id: string; slug?: string },
+			options: { tenant?: string; expectSlug?: string },
+		) {
+			mocks.mockReadFileSync.mockReturnValue(JSON.stringify(config));
+			let routeHandler: RouteHandler;
+			mocks.mockFastifyInstance.get.mockImplementation(
+				(_path: string, handler: RouteHandler) => {
+					routeHandler = handler;
+				},
+			);
+			mocks.mockFastifyInstance.listen.mockImplementation(async () => {
+				setTimeout(async () => {
+					await routeHandler(
+						{ query: { code: "code" } },
+						{
+							type: vi.fn().mockReturnThis(),
+							code: vi.fn().mockReturnThis(),
+							send: vi.fn().mockReturnThis(),
+						},
+					);
+				}, 10);
+			});
+			mocks.mockFetch.mockResolvedValueOnce({
+				ok: true,
+				json: () =>
+					Promise.resolve({
+						access_token: "lin_oauth_SECRETTOKENVALUE1234567890abcdef",
+						refresh_token: "refresh_new",
+					}),
+			});
+			const { LinearClient } = await import("@linear/sdk");
+			(LinearClient as any).mockImplementation(function () {
+				return {
+					viewer: Promise.resolve({
+						organization: Promise.resolve({
+							id: workspace.id,
+							name: "WS",
+							urlKey: workspace.slug,
+						}),
+					}),
+				};
+			});
+			return command.execute([], options);
+		}
+
+		const printed = () =>
+			[
+				...mockConsoleLog.mock.calls,
+				...Object.values(mockApp.logger).flatMap((fn: any) => fn.mock.calls),
+			]
+				.flat()
+				.join("\n");
+
+		beforeEach(() => {
+			mocks.mockFetch.mockReset();
+			process.env.CYRUS_BASE_URL = "https://example.com";
+			delete process.env.LINEAR_CLIENT_ID;
+			delete process.env.LINEAR_CLIENT_SECRET;
+			delete process.env.CFG_CLIENT_ID;
+			delete process.env.CFG_CLIENT_SECRET;
+			delete process.env.LINEAR_CLIENT_ID__LAPSE_CO;
+			delete process.env.LINEAR_CLIENT_SECRET__LAPSE_CO;
+		});
+
+		it("uses the env names from config.json when the tenant is present, and saves", async () => {
+			process.env.CFG_CLIENT_ID = "cfg-client-id-VALUE";
+			process.env.CFG_CLIENT_SECRET = "cfg-secret";
+			await expect(
+				runFlow(
+					{ repositories: [], tenants: [tenantEntry] },
+					{ id: "ws-lapse", slug: "lapse-ws" },
+					{ tenant: "lapse" },
+				),
+			).rejects.toThrow("process.exit called");
+			expect(mockExit).toHaveBeenCalledWith(0);
+			const saved = JSON.parse(mocks.mockWriteFileSync.mock.calls[0][1]);
+			expect(saved.linearWorkspaces["ws-lapse"].linearToken).toContain(
+				"lin_oauth_",
+			);
+			const out = printed();
+			// (the public client id still appears inside the printed authorize URL)
+			expect(out).not.toContain("Client ID");
+			expect(out).not.toContain("lin_oauth_");
+			expect(out).not.toContain("SECRETTOKEN");
+		});
+
+		it("falls back to NAME__SUFFIX env names when the tenant is not in config yet", async () => {
+			process.env.LINEAR_CLIENT_ID__LAPSE_CO = "suffix-id";
+			process.env.LINEAR_CLIENT_SECRET__LAPSE_CO = "suffix-secret";
+			await expect(
+				runFlow(
+					{ repositories: [] },
+					{ id: "ws-x", slug: "lapse-ws" },
+					{ tenant: "lapse-co", expectSlug: "lapse-ws" },
+				),
+			).rejects.toThrow("process.exit called");
+			expect(mockExit).toHaveBeenCalledWith(0);
+			expect(mocks.mockWriteFileSync).toHaveBeenCalled();
+		});
+
+		it("names the suffixed env vars when they are missing", async () => {
+			await expect(
+				runFlow(
+					{ repositories: [] },
+					{ id: "ws-x", slug: "lapse-ws" },
+					{ tenant: "lapse-co", expectSlug: "lapse-ws" },
+				),
+			).rejects.toThrow("process.exit called");
+			expect(mockExit).toHaveBeenCalledWith(1);
+			expect(printed()).toContain("LINEAR_CLIENT_ID__LAPSE_CO");
+			expect(printed()).toContain("LINEAR_CLIENT_SECRET__LAPSE_CO");
+		});
+
+		it("refuses a tenant that is absent from config.json without --expect-slug", async () => {
+			process.env.LINEAR_CLIENT_ID__LAPSE_CO = "suffix-id";
+			process.env.LINEAR_CLIENT_SECRET__LAPSE_CO = "suffix-secret";
+			await expect(
+				runFlow(
+					{ repositories: [] },
+					{ id: "ws-x", slug: "lapse-ws" },
+					{ tenant: "lapse-co" },
+				),
+			).rejects.toThrow("process.exit called");
+			expect(mockExit).toHaveBeenCalledWith(1);
+			expect(mocks.mockWriteFileSync).not.toHaveBeenCalled();
+			expect(mocks.mockFetch).not.toHaveBeenCalled();
+		});
+
+		it("refuses to save when the authorized slug differs from --expect-slug", async () => {
+			process.env.CFG_CLIENT_ID = "id";
+			process.env.CFG_CLIENT_SECRET = "secret";
+			await expect(
+				runFlow(
+					{ repositories: [], tenants: [tenantEntry] },
+					{ id: "ws-lapse", slug: "other-ws" },
+					{ tenant: "lapse", expectSlug: "lapse-ws" },
+				),
+			).rejects.toThrow("process.exit called");
+			expect(mockExit).toHaveBeenCalledWith(1);
+			expect(mocks.mockWriteFileSync).not.toHaveBeenCalled();
+		});
+
+		it("refuses to save when the workspace id differs from the tenant's", async () => {
+			process.env.CFG_CLIENT_ID = "id";
+			process.env.CFG_CLIENT_SECRET = "secret";
+			await expect(
+				runFlow(
+					{ repositories: [], tenants: [tenantEntry] },
+					{ id: "ws-someone-else", slug: "lapse-ws" },
+					{ tenant: "lapse" },
+				),
+			).rejects.toThrow("process.exit called");
+			expect(mockExit).toHaveBeenCalledWith(1);
+			expect(mocks.mockWriteFileSync).not.toHaveBeenCalled();
+		});
+	});
+
 	describe("Config Update", () => {
 		beforeEach(() => {
 			process.env.LINEAR_CLIENT_ID = "test-client-id";

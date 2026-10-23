@@ -115,6 +115,81 @@ describe("RunnerConfigBuilder.buildChatConfig", () => {
 		]);
 	});
 
+	describe("chat OS sandbox", () => {
+		const cyrusHome = "/tmp/cyrus-home-test";
+		const workspacePath = join(cyrusHome, "slack-workspaces", "thread-x");
+		const memoryDir = join(cyrusHome, "slack-memory");
+		const sandboxSettings = {
+			enabled: true,
+			network: { httpProxyPort: 8080, socksProxyPort: 8081 },
+		} as any;
+		const input = (extra: Record<string, unknown>) => ({
+			workspacePath,
+			workspaceName: "slack-thread-x",
+			systemPrompt: "test",
+			sessionId: "sess-1",
+			cyrusHome,
+			platformName: "slack",
+			logger: silentLogger,
+			onMessage: () => {},
+			onError: () => {},
+			...extra,
+		});
+
+		it("emits no sandbox block when sandboxSettings is unset", () => {
+			const config = makeBuilder().buildChatConfig(
+				input({ repositoryPaths: ["/repo/one"] }),
+			) as any;
+			expect(config.sandbox).toBeUndefined();
+			expect(config.additionalEnv).toBeUndefined();
+		});
+
+		it("limits a two-tenant chat to its own tenant's checkouts and keeps proxy ports", () => {
+			// The caller (ChatSessionHandler) passes only the event tenant's paths.
+			const config = makeBuilder().buildChatConfig(
+				input({
+					sandboxSettings,
+					egressCaCertPath: "/tmp/ca.pem",
+					repositoryPaths: ["/repos/jusplay", "/repos/cyrus-sandbox-app"],
+				}),
+			) as any;
+			expect(config.sandbox).toEqual({
+				enabled: true,
+				network: { httpProxyPort: 8080, socksProxyPort: 8081 },
+				allowUnsandboxedCommands: false,
+				enableWeakerNetworkIsolation: true,
+				filesystem: {
+					allowRead: [
+						workspacePath,
+						memoryDir,
+						"/repos/jusplay",
+						"/repos/cyrus-sandbox-app",
+					],
+					denyRead: ["~/"],
+					allowWrite: [workspacePath, memoryDir],
+				},
+			});
+			expect(config.sandbox.filesystem.allowRead).not.toContain("/repos/lapse");
+			expect(config.additionalEnv.NODE_EXTRA_CA_CERTS).toBe("/tmp/ca.pem");
+		});
+
+		it("without tenants allows every checkout", () => {
+			const config = makeBuilder().buildChatConfig(
+				input({
+					sandboxSettings,
+					repositoryPaths: ["/repos/a", "/repos/b"],
+				}),
+			) as any;
+			expect(config.sandbox.filesystem.allowRead).toEqual([
+				workspacePath,
+				memoryDir,
+				"/repos/a",
+				"/repos/b",
+			]);
+			expect(config.additionalEnv).toBeUndefined();
+		});
+	});
+
 	it("passes managed skill plugins and scoped skill names to chat runner configs", () => {
 		const builder = makeBuilder();
 		const plugins = [{ type: "local" as const, path: "/cyrus/user-skills" }];

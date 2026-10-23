@@ -1,6 +1,6 @@
 import { LinearClient } from "@linear/sdk";
 import type { EdgeWorkerConfig } from "cyrus-core";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EdgeWorker } from "../src/EdgeWorker.js";
 
 // Mock modules
@@ -167,6 +167,88 @@ describe("EdgeWorker LinearClient Wrapper", () => {
 			expect(issueTracker).toBeDefined();
 			// OAuth config should not be set (no refresh capability)
 			expect((issueTracker as any).oauthConfig).toBeUndefined();
+		});
+	});
+
+	describe("tenant OAuth credentials", () => {
+		beforeEach(() => {
+			process.env.LINEAR_DIRECT_WEBHOOKS = "true";
+			process.env.CYRUS_HOST_EXTERNAL = "true";
+		});
+		afterEach(() => {
+			delete process.env.LINEAR_DIRECT_WEBHOOKS;
+			delete process.env.CYRUS_HOST_EXTERNAL;
+		});
+
+		it("refreshes a tenant's workspace with that tenant's OAuth app, not the global one", () => {
+			process.env.LINEAR_CLIENT_ID__LAPSE = "lapse_client_id";
+			process.env.LINEAR_CLIENT_SECRET__LAPSE = "lapse_client_secret";
+			edgeWorker = new EdgeWorker({
+				...mockConfig,
+				tenants: [
+					{
+						id: "lapse",
+						linearWorkspaceId: "workspace-123",
+						linear: {
+							clientIdEnv: "LINEAR_CLIENT_ID__LAPSE",
+							clientSecretEnv: "LINEAR_CLIENT_SECRET__LAPSE",
+							webhookSecretEnv: "LINEAR_WEBHOOK_SECRET__LAPSE",
+						},
+						repositoryIds: ["repo-1"],
+					},
+				],
+			});
+			const issueTracker = (edgeWorker as any).issueTrackers.get(
+				"workspace-123",
+			);
+			const oauthConfig = (issueTracker as any).oauthConfig;
+			expect(oauthConfig.clientId).toBe("lapse_client_id");
+			expect(oauthConfig.clientSecret).toBe("lapse_client_secret");
+			delete process.env.LINEAR_CLIENT_ID__LAPSE;
+			delete process.env.LINEAR_CLIENT_SECRET__LAPSE;
+		});
+
+		it("does not fall back to the global OAuth app when the tenant's env is unset", () => {
+			edgeWorker = new EdgeWorker({
+				...mockConfig,
+				tenants: [
+					{
+						id: "lapse",
+						linearWorkspaceId: "workspace-123",
+						linear: {
+							clientIdEnv: "LINEAR_CLIENT_ID__LAPSE",
+							clientSecretEnv: "LINEAR_CLIENT_SECRET__LAPSE",
+							webhookSecretEnv: "LINEAR_WEBHOOK_SECRET__LAPSE",
+						},
+						repositoryIds: ["repo-1"],
+					},
+				],
+			});
+			const issueTracker = (edgeWorker as any).issueTrackers.get(
+				"workspace-123",
+			);
+			expect((issueTracker as any).oauthConfig).toBeUndefined();
+		});
+
+		it("rejects an invalid tenants config at construction", () => {
+			expect(
+				() =>
+					new EdgeWorker({
+						...mockConfig,
+						tenants: [
+							{
+								id: "x",
+								linearWorkspaceId: "workspace-123",
+								linear: {
+									clientIdEnv: "A",
+									clientSecretEnv: "B",
+									webhookSecretEnv: "C",
+								},
+								repositoryIds: ["missing"],
+							},
+						],
+					}),
+			).toThrow(/Invalid tenants config/);
 		});
 	});
 

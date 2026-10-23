@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { EdgeConfigSchema } from "../src/config-schemas.js";
+import { TenantRegistry, validateTenants } from "../src/tenants.js";
 
 const baseRepository = {
 	id: "repo-1",
@@ -84,5 +85,88 @@ describe("EdgeConfigSchema", () => {
 
 		expect(globalResult.success).toBe(false);
 		expect(repositoryResult.success).toBe(false);
+	});
+});
+
+describe("tenants", () => {
+	const tenant = (id: string, over: Record<string, unknown> = {}) => ({
+		id,
+		linearWorkspaceId: `ws-${id}`,
+		linear: {
+			clientIdEnv: `LINEAR_CLIENT_ID__${id}`,
+			clientSecretEnv: `LINEAR_CLIENT_SECRET__${id}`,
+			webhookSecretEnv: `LINEAR_WEBHOOK_SECRET__${id}`,
+		},
+		slack: {
+			teamId: `T_${id}`,
+			botTokenEnv: `SLACK_BOT_TOKEN__${id}`,
+			signingSecretEnv: `SLACK_SIGNING_SECRET__${id}`,
+		},
+		repositoryIds: [`repo-${id}`],
+		...over,
+	});
+	const repos = ["a", "b"].map((id) => ({
+		...baseRepository,
+		id: `repo-${id}`,
+	}));
+
+	it("is optional and parses a valid tenant list", () => {
+		expect(EdgeConfigSchema.parse({ repositories: repos }).tenants).toBe(
+			undefined,
+		);
+		const cfg = EdgeConfigSchema.parse({
+			repositories: repos,
+			tenants: [tenant("a"), tenant("b", { slack: undefined })],
+		});
+		expect(validateTenants(cfg)).toEqual([]);
+	});
+
+	it("reports duplicate ids, workspaces, teams and shared or missing repos", () => {
+		const cfg = EdgeConfigSchema.parse({
+			repositories: repos,
+			tenants: [
+				tenant("a"),
+				tenant("a", {
+					linearWorkspaceId: "ws-a",
+					slack: tenant("a").slack,
+					repositoryIds: ["repo-a", "nope"],
+				}),
+			],
+		});
+		const problems = validateTenants(cfg).join("\n");
+		expect(problems).toContain('duplicate tenant id "a"');
+		expect(problems).toContain("linearWorkspaceId already used");
+		expect(problems).toContain("slack.teamId already used");
+		expect(problems).toContain('repository "nope" does not exist');
+	});
+
+	it("rejects a repository owned by two tenants", () => {
+		const cfg = EdgeConfigSchema.parse({
+			repositories: repos,
+			tenants: [tenant("a"), tenant("b", { repositoryIds: ["repo-a"] })],
+		});
+		expect(validateTenants(cfg).join()).toContain(
+			'repository "repo-a" belongs to both "a" and "b"',
+		);
+	});
+
+	it("TenantRegistry looks tenants up and reads secrets at call time", () => {
+		const env: NodeJS.ProcessEnv = {};
+		const reg = TenantRegistry.fromConfig(
+			EdgeConfigSchema.parse({
+				repositories: repos,
+				tenants: [tenant("a"), tenant("b")],
+			}),
+			env,
+		);
+		expect(reg.enabled).toBe(true);
+		expect(reg.byLinearWorkspaceId("ws-b")?.id).toBe("b");
+		expect(reg.bySlackTeamId("T_a")?.id).toBe("a");
+		expect(reg.byRepositoryId("repo-b")?.id).toBe("b");
+		expect(reg.byId("zzz")).toBeUndefined();
+		expect(reg.secret("X")).toBeUndefined();
+		env.X = "v";
+		expect(reg.secret("X")).toBe("v");
+		expect(TenantRegistry.fromConfig({}).enabled).toBe(false);
 	});
 });

@@ -18,42 +18,82 @@ export class SelfAuthCommand extends BaseCommand {
 	private server: FastifyInstance | null = null;
 	private callbackPort = parseInt(process.env.CYRUS_SERVER_PORT || "3456", 10);
 
-	async execute(_args: string[]): Promise<void> {
+	/**
+	 * @param options.tenant Authorize this tenant's own Linear OAuth app: its env
+	 *   var names come from config.json `tenants` (or, before setup has written
+	 *   the tenant, the NAME__SUFFIX rule: upper-case, '-' -> '_').
+	 * @param options.expectSlug Refuse to save unless the authorized workspace's
+	 *   urlKey equals this slug.
+	 */
+	async execute(
+		_args: string[],
+		options: { tenant?: string; expectSlug?: string } = {},
+	): Promise<void> {
 		console.log("\nCyrus Linear Self-Authentication");
 		this.logDivider();
 
+		// Check config file exists
+		const configPath = resolve(this.app.cyrusHome, DEFAULT_CONFIG_FILENAME);
+		const loadConfig = (): EdgeConfig => {
+			try {
+				return migrateEdgeConfig(
+					JSON.parse(readFileSync(configPath, "utf-8")),
+				) as EdgeConfig;
+			} catch {
+				this.logError(`Config file not found: ${configPath}`);
+				console.log("Run 'cyrus' first to create initial configuration.");
+				process.exit(1);
+			}
+		};
+		// Tenant env names live in the config; otherwise validate env first.
+		let config: EdgeConfig | undefined = options.tenant
+			? loadConfig()
+			: undefined;
+
+		// Resolve which env vars hold the OAuth app credentials
+		const tenantId = options.tenant;
+		const tenant = tenantId
+			? config?.tenants?.find((t) => t.id === tenantId)
+			: undefined;
+		if (tenantId && !tenant && !/^[a-z0-9][a-z0-9-]*$/.test(tenantId)) {
+			this.logError(`Invalid tenant id: ${tenantId}`);
+			process.exit(1);
+		}
+		if (tenantId && !tenant && !options.expectSlug) {
+			this.logError(
+				`Tenant "${tenantId}" is not in config.json yet; pass --expect-slug <linear-workspace-slug> so the right workspace is authorized`,
+			);
+			process.exit(1);
+		}
+		const suffix = tenantId?.toUpperCase().replace(/-/g, "_");
+		const clientIdEnv =
+			tenant?.linear.clientIdEnv ??
+			(suffix ? `LINEAR_CLIENT_ID__${suffix}` : "LINEAR_CLIENT_ID");
+		const clientSecretEnv =
+			tenant?.linear.clientSecretEnv ??
+			(suffix ? `LINEAR_CLIENT_SECRET__${suffix}` : "LINEAR_CLIENT_SECRET");
+
 		// Check required environment variables
-		const clientId = process.env.LINEAR_CLIENT_ID;
-		const clientSecret = process.env.LINEAR_CLIENT_SECRET;
+		const clientId = process.env[clientIdEnv];
+		const clientSecret = process.env[clientSecretEnv];
 		const baseUrl = process.env.CYRUS_BASE_URL;
 
 		if (!clientId || !clientSecret || !baseUrl) {
 			this.logError("Missing required environment variables:");
-			if (!clientId) console.log("   - LINEAR_CLIENT_ID");
-			if (!clientSecret) console.log("   - LINEAR_CLIENT_SECRET");
+			if (!clientId) console.log(`   - ${clientIdEnv}`);
+			if (!clientSecret) console.log(`   - ${clientSecretEnv}`);
 			if (!baseUrl) console.log("   - CYRUS_BASE_URL");
 			console.log(`\nAdd these to your env file (${this.app.cyrusHome}/.env):`);
-			console.log("  LINEAR_CLIENT_ID=your-client-id");
-			console.log("  LINEAR_CLIENT_SECRET=your-client-secret");
+			console.log(`  ${clientIdEnv}=your-client-id`);
+			console.log(`  ${clientSecretEnv}=your-client-secret`);
 			console.log("  CYRUS_BASE_URL=https://your-tunnel-domain.com");
 			process.exit(1);
 		}
 
-		// Check config file exists
-		const configPath = resolve(this.app.cyrusHome, DEFAULT_CONFIG_FILENAME);
-		let config: EdgeConfig;
-		try {
-			config = migrateEdgeConfig(
-				JSON.parse(readFileSync(configPath, "utf-8")),
-			) as EdgeConfig;
-		} catch {
-			this.logError(`Config file not found: ${configPath}`);
-			console.log("Run 'cyrus' first to create initial configuration.");
-			process.exit(1);
-		}
+		config = config ?? loadConfig();
 
 		console.log("Configuration:");
-		console.log(`   Client ID: ${clientId.substring(0, 20)}...`);
+		if (tenantId) console.log(`   Tenant: ${tenantId}`);
 		console.log(`   Base URL: ${baseUrl}`);
 		console.log(`   Config: ${configPath}`);
 		console.log(`   Callback port: ${this.callbackPort}`);
@@ -84,14 +124,24 @@ export class SelfAuthCommand extends BaseCommand {
 				clientId,
 				clientSecret,
 			);
-			this.logSuccess(
-				`Got access token: ${tokens.accessToken.substring(0, 30)}...`,
-			);
+			this.logSuccess("Got access token");
 
 			// Fetch workspace info
 			console.log("Fetching workspace info...");
 			const workspace = await this.fetchWorkspaceInfo(tokens.accessToken);
 			this.logSuccess(`Workspace: ${workspace.name} (${workspace.id})`);
+
+			// Never save credentials from the wrong workspace into a tenant
+			if (options.expectSlug && workspace.slug !== options.expectSlug) {
+				throw new Error(
+					`Authorized workspace "${workspace.slug}" does not match the expected slug "${options.expectSlug}"; nothing saved. Log in to the right Linear workspace and retry.`,
+				);
+			}
+			if (tenant && tenant.linearWorkspaceId !== workspace.id) {
+				throw new Error(
+					`Authorized workspace ${workspace.id} is not tenant "${tenant.id}"'s workspace; nothing saved.`,
+				);
+			}
 
 			// Save workspace credentials to config.json
 			console.log("Saving tokens to config.json...");
@@ -247,7 +297,7 @@ export class SelfAuthCommand extends BaseCommand {
 			refresh_token?: string;
 		};
 
-		if (!data.access_token || !data.access_token.startsWith("lin_oauth_")) {
+		if (!data.access_token?.startsWith("lin_oauth_")) {
 			throw new Error("Invalid access token received");
 		}
 

@@ -113,6 +113,10 @@ export interface ChatRunnerConfigInput {
 	opencodeGlobalStateScope?: OpenCodeConfigOverrides["stateScope"];
 	/** Existing runner type to preserve when resuming a completed chat session */
 	runnerType?: RunnerType;
+	/** SDK sandbox settings (enabled, network proxy ports) for Claude runner */
+	sandboxSettings?: SandboxSettings;
+	/** Egress proxy CA bundle path (for MITM TLS trust in sandboxed children) */
+	egressCaCertPath?: string;
 	logger: ILogger;
 	onMessage: (message: SDKMessage) => void | Promise<void>;
 	onError: (error: Error) => void;
@@ -342,6 +346,17 @@ export class RunnerConfigBuilder {
 				: {}),
 			...(input.plugins?.length ? { plugins: input.plugins } : {}),
 			...(input.skills !== undefined ? { skills: input.skills } : {}),
+			// OS sandbox (Claude runner only): deny the home directory, then allow
+			// reading only this chat's workspace, the shared auto-memory dir and the
+			// repositories the caller passed in (the event's tenant's checkouts).
+			...(runnerType === "claude" &&
+				input.sandboxSettings &&
+				this.buildChatSandboxConfig(
+					input,
+					input.workspacePath,
+					autoMemoryDirectory,
+					repositoryPaths,
+				)),
 			...(runnerType === "opencode" && {
 				opencodeGlobalConfig: input.opencodeGlobalConfig,
 				opencodeRepositoryConfig: input.repository?.opencode?.config,
@@ -685,28 +700,60 @@ export class RunnerConfigBuilder {
 		}
 
 		if (input.egressCaCertPath) {
-			result.additionalEnv = {
-				// Node.js (SDK, npm, etc.)
-				NODE_EXTRA_CA_CERTS: input.egressCaCertPath,
-				// OpenSSL-based tools (general fallback — also covers Ruby)
-				SSL_CERT_FILE: input.egressCaCertPath,
-				// Git HTTPS operations
-				GIT_SSL_CAINFO: input.egressCaCertPath,
-				// Python requests/pip
-				REQUESTS_CA_BUNDLE: input.egressCaCertPath,
-				PIP_CERT: input.egressCaCertPath,
-				// curl (when compiled against OpenSSL, not SecureTransport)
-				CURL_CA_BUNDLE: input.egressCaCertPath,
-				// Rust/Cargo
-				CARGO_HTTP_CAINFO: input.egressCaCertPath,
-				// AWS CLI / boto3
-				AWS_CA_BUNDLE: input.egressCaCertPath,
-				// Deno
-				DENO_CERT: input.egressCaCertPath,
-			};
+			result.additionalEnv = RunnerConfigBuilder.buildEgressCaEnv(
+				input.egressCaCertPath,
+			);
 		}
 
 		return result;
+	}
+
+	/**
+	 * Sandbox and env config for a chat session. Same posture as issue
+	 * sessions, but chat has no worktree, so the readable set is explicit and
+	 * writes are limited to the chat workspace and the shared memory dir.
+	 * `input.sandboxSettings` is spread first so the network proxy ports survive.
+	 */
+	private buildChatSandboxConfig(
+		input: ChatRunnerConfigInput,
+		workspacePath: string,
+		autoMemoryDirectory: string,
+		repositoryPaths: string[],
+	): Record<string, unknown> {
+		const result: Record<string, unknown> = {};
+		if (input.sandboxSettings) {
+			result.sandbox = {
+				...input.sandboxSettings,
+				allowUnsandboxedCommands: false,
+				enableWeakerNetworkIsolation: true,
+				filesystem: {
+					...input.sandboxSettings.filesystem,
+					allowRead: [workspacePath, autoMemoryDirectory, ...repositoryPaths],
+					denyRead: ["~/"],
+					allowWrite: [workspacePath, autoMemoryDirectory],
+				},
+			};
+		}
+		if (input.egressCaCertPath) {
+			result.additionalEnv = RunnerConfigBuilder.buildEgressCaEnv(
+				input.egressCaCertPath,
+			);
+		}
+		return result;
+	}
+
+	private static buildEgressCaEnv(caPath: string): Record<string, string> {
+		return {
+			NODE_EXTRA_CA_CERTS: caPath,
+			SSL_CERT_FILE: caPath,
+			GIT_SSL_CAINFO: caPath,
+			REQUESTS_CA_BUNDLE: caPath,
+			PIP_CERT: caPath,
+			CURL_CA_BUNDLE: caPath,
+			CARGO_HTTP_CAINFO: caPath,
+			AWS_CA_BUNDLE: caPath,
+			DENO_CERT: caPath,
+		};
 	}
 
 	/**
