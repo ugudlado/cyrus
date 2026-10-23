@@ -110,6 +110,7 @@ export {
 	TRUSTED_DOMAINS,
 	UserAccessControlConfigSchema,
 	UserIdentifierSchema,
+	validateAllowedRunners,
 } from "./config-types.js";
 // Constants
 export {

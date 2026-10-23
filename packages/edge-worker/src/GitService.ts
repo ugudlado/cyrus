@@ -6,11 +6,13 @@ import {
 	readdirSync,
 	readFileSync,
 	realpathSync,
+	renameSync,
 	rmSync,
+	statfsSync,
 	statSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join, resolve as pathResolve } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import type {
 	BaseBranchResolution,
@@ -61,6 +63,8 @@ export interface GitServiceOptions {
 	ghBinary?: string;
 	/** Tests only: also allow the `file` protocol for local fixture remotes. */
 	gitAllowFileProtocol?: boolean;
+	/** Minimum free bytes required to clone (default 2 GB); tests lower it. */
+	cloneMinFreeBytes?: number;
 	/** Tests only: replace the git env (unit tests that stub the git process). */
 	gitEnv?: GitEnv;
 }
@@ -133,6 +137,16 @@ function describeGitError(e: unknown): string {
 	}
 	const message = x?.message ?? "git command failed";
 	return message.startsWith("Command failed") ? "git command failed" : message;
+}
+
+/** Short, secret-free reason for a failed clone (shown to users). */
+function cloneFailureReason(error: unknown): string {
+	const message = (error as Error)?.message ?? "";
+	if (message.startsWith("Not enough free disk space")) {
+		return "not enough free disk space";
+	}
+	if (message === "Not a git repository") return "not a git repository";
+	return "git clone failed";
 }
 
 function escapeRegExp(value: string): string {
@@ -263,12 +277,14 @@ export class GitService {
 	private untrustedWorktree: boolean;
 	/** Parent-owned git env: location + config pins for every git call. */
 	readonly gitEnv: GitEnv;
+	private cloneMinFreeBytes: number;
 
 	constructor(options?: GitServiceOptions, logger?: ILogger) {
 		this.logger = logger ?? createLogger({ component: "GitService" });
 		this.worktreeIncludeService = new WorktreeIncludeService(this.logger);
 		this.cyrusHome = options?.cyrusHome ?? join(homedir(), ".cyrus");
 		this.untrustedWorktree = options?.untrustedWorktree ?? false;
+		this.cloneMinFreeBytes = options?.cloneMinFreeBytes ?? 2 * 1024 ** 3;
 		this.gitEnv =
 			options?.gitEnv ??
 			new GitEnv({
@@ -284,38 +300,6 @@ export class GitService {
 	/** Pinned repo-scope invocation; throws GitEnvError when unusable. */
 	private repoInv(repoPath: string): GitInvocation {
 		return this.gitEnv.repoScope(repoPath);
-	}
-
-	/**
-	 * Read the worktree pointers (`.git` gitfile, `commondir`) with plain file
-	 * reads. No git process is started in a directory a session can write.
-	 */
-	private readWorktreePointers(
-		workingDirectory: string,
-	): { gitDir: string; commonDir: string } | null {
-		try {
-			const gitPath = join(workingDirectory, ".git");
-			const st = lstatSync(gitPath);
-			if (st.isDirectory()) {
-				return { gitDir: gitPath, commonDir: gitPath };
-			}
-			if (!st.isFile()) return null;
-			const m = readFileSync(gitPath, "utf8")
-				.trim()
-				.match(/^gitdir:\s+(.+)$/);
-			if (!m?.[1]) return null;
-			const gitDir = pathResolve(workingDirectory, m[1]);
-			let commonDir = gitDir;
-			try {
-				const c = readFileSync(join(gitDir, "commondir"), "utf8").trim();
-				if (c) commonDir = pathResolve(gitDir, c);
-			} catch {
-				// no commondir file: not a linked worktree layout
-			}
-			return { gitDir, commonDir };
-		} catch {
-			return null;
-		}
 	}
 
 	/**
@@ -374,152 +358,6 @@ export class GitService {
 			.replace(/^[.\-/]+/, "") // strip leading dots, dashes, slashes
 			.replace(/[.\-/]+$/, "") // strip trailing dots, dashes, slashes
 			.replace(/-{2,}/g, "-"); // collapse consecutive dashes
-	}
-
-	/**
-	 * Resolve mutable Git metadata directories for a repository/worktree.
-	 * This includes linked worktree metadata paths (for example
-	 * `.git/worktrees/<name>/FETCH_HEAD`) that must be writable by sandboxes.
-	 */
-	public getGitMetadataDirectories(workingDirectory: string): string[] {
-		const pointers = this.readWorktreePointers(workingDirectory);
-		if (!pointers) return [];
-		return [...new Set([pointers.gitDir, pointers.commonDir])];
-	}
-
-	/**
-	 * Resolve mutable Git metadata directories for an entire workspace,
-	 * including every repository in a multi-repo session.
-	 *
-	 * For single-repo workspaces `workspace.path` is itself the worktree, so
-	 * resolving from it is sufficient. For multi-repo workspaces, however,
-	 * `workspace.path` is a plain parent container (not a git repo) and each
-	 * repository lives in a sub-worktree under `workspace.repoPaths`. Each of
-	 * those sub-worktrees has its own linked git metadata (for example
-	 * `<mainRepo>/.git/worktrees/<name>/`) that must be writable by sandboxes —
-	 * resolving only from the container would miss them entirely, breaking
-	 * `git add`/`git merge`/etc. with "Operation not permitted".
-	 */
-	public getGitMetadataDirectoriesForWorkspace(workspace: Workspace): string[] {
-		const candidateWorkingDirs = new Set<string>([
-			workspace.path,
-			...Object.values(workspace.repoPaths ?? {}),
-		]);
-
-		const resolvedDirectories = new Set<string>();
-		for (const workingDir of candidateWorkingDirs) {
-			for (const metadataDir of this.getGitMetadataDirectories(workingDir)) {
-				resolvedDirectories.add(metadataDir);
-			}
-		}
-
-		return [...resolvedDirectories];
-	}
-
-	/**
-	 * Resolve the git metadata directory a sandboxed session may be granted
-	 * WRITE access to (and that the tool-permission layer may `Read`), with
-	 * containment validation.
-	 *
-	 * The raw value behind `git rev-parse --git-common-dir` comes from files
-	 * inside the worktree (`<worktree>/.git`, `worktrees/<n>/commondir`) that a
-	 * session can rewrite. A hostile session could point it at, say, `~/.cyrus`.
-	 * So the grant is anchored on the configured repository: the only directory
-	 * ever returned is `realpath(<repositoryPath>/.git)`, and only when the
-	 * worktree's reported common dir resolves to exactly that path. Otherwise
-	 * nothing is granted for that worktree and a warning is logged.
-	 *
-	 * The per-worktree gitdir (`.git/worktrees/<n>`) is deliberately NOT
-	 * returned: it lies inside the common dir (already covered), and because the
-	 * session can write the common dir it could swap that entry for a symlink to
-	 * an arbitrary host path that the sandbox bind would then follow.
-	 *
-	 * @param targets One entry per git worktree in the workspace: the worktree
-	 *   directory and the configured repository path it must belong to.
-	 */
-	public getWritableGitMetadataDirectories(
-		targets: Array<{ workingDirectory: string; repositoryPath: string }>,
-	): string[] {
-		const result = new Set<string>();
-		for (const { workingDirectory, repositoryPath } of targets) {
-			let commonRoot: string;
-			try {
-				commonRoot = realpathSync.native(join(repositoryPath, ".git"));
-			} catch {
-				this.logger.warn(
-					`Skipping git metadata dir for ${workingDirectory}: ${repositoryPath}/.git not resolvable`,
-				);
-				continue;
-			}
-			const { commonDir } = this.resolveGitMetadataPair(workingDirectory);
-			if (!commonDir) continue;
-			let real: string;
-			try {
-				real = realpathSync.native(commonDir);
-			} catch {
-				this.logger.warn(
-					`Skipping git common dir ${commonDir}: not resolvable (outside check failed)`,
-				);
-				continue;
-			}
-			if (real !== commonRoot) {
-				this.logger.warn(
-					`Skipping git common dir ${commonDir} (resolves to ${real}): outside ${commonRoot}`,
-				);
-				continue;
-			}
-			result.add(commonRoot);
-		}
-		return [...result];
-	}
-
-	private resolveGitMetadataPair(workingDirectory: string): {
-		gitDir: string | null;
-		commonDir: string | null;
-	} {
-		const pointers = this.readWorktreePointers(workingDirectory);
-		return {
-			gitDir: pointers?.gitDir ?? null,
-			commonDir: pointers?.commonDir ?? null,
-		};
-	}
-
-	/**
-	 * Find an existing worktree by its checked-out branch name.
-	 * Parses `git worktree list --porcelain` output and returns the worktree path
-	 * if a worktree is found with the given branch checked out, or null otherwise.
-	 */
-	findWorktreeByBranch(branchName: string, repoPath: string): string | null {
-		try {
-			const output = this.gitEnv.run(this.repoInv(repoPath), [
-				"worktree",
-				"list",
-				"--porcelain",
-			]);
-
-			const blocks = output.split("\n\n");
-			for (const block of blocks) {
-				const lines = block.split("\n");
-				let worktreePath: string | null = null;
-				let branchRef: string | null = null;
-
-				for (const line of lines) {
-					if (line.startsWith("worktree ")) {
-						worktreePath = line.slice("worktree ".length);
-					} else if (line.startsWith("branch ")) {
-						branchRef = line.slice("branch refs/heads/".length);
-					}
-				}
-
-				if (worktreePath && branchRef === branchName) {
-					return worktreePath;
-				}
-			}
-
-			return null;
-		} catch {
-			return null;
-		}
 	}
 
 	/**
@@ -768,7 +606,7 @@ export class GitService {
 			this.logger.info(
 				`createGitWorktree: baseBranchOverrides=${baseBranchOverrides ? `Map(size=${baseBranchOverrides.size})` : "undefined"}, repoId=${repoId}, overrideValue=${overrideValue ?? "undefined"}`,
 			);
-			return this.createSingleRepoWorktree(
+			return this.createSingleRepoClone(
 				issue,
 				repositories[0]!,
 				globalSetupScript,
@@ -795,6 +633,8 @@ export class GitService {
 		const resolvedBaseBranches: Record<string, BaseBranchResolution> = {};
 		const gitDirNames: Record<string, string> = {};
 		const branchNames: Record<string, string> = {};
+		const cloneFailed: string[] = [];
+		const cloneFailures: Record<string, string> = {};
 
 		for (const repository of repositories) {
 			const repoSubPath = join(parentPath, repository.name);
@@ -803,7 +643,7 @@ export class GitService {
 			);
 
 			try {
-				const repoWorkspace = await this.createSingleRepoWorktree(
+				const repoWorkspace = await this.createSingleRepoClone(
 					issue,
 					repository,
 					undefined, // global setup already ran
@@ -818,6 +658,10 @@ export class GitService {
 						repoWorkspace.resolvedBaseBranches,
 					);
 				}
+				if (repoWorkspace.cloneFailed) {
+					cloneFailed.push(...repoWorkspace.cloneFailed);
+					Object.assign(cloneFailures, repoWorkspace.cloneFailures ?? {});
+				}
 				if (repoWorkspace.branchNames) {
 					Object.assign(branchNames, repoWorkspace.branchNames);
 				}
@@ -831,6 +675,8 @@ export class GitService {
 				// Create fallback directory for this repo
 				mkdirSync(repoSubPath, { recursive: true });
 				repoPaths[repository.id] = repoSubPath;
+				cloneFailed.push(repository.id);
+				cloneFailures[repository.id] = "git clone failed";
 			}
 		}
 
@@ -841,86 +687,22 @@ export class GitService {
 			resolvedBaseBranches,
 			...(Object.keys(gitDirNames).length > 0 ? { gitDirNames } : {}),
 			...(Object.keys(branchNames).length > 0 ? { branchNames } : {}),
+			...(cloneFailed.length > 0 ? { cloneFailed, cloneFailures } : {}),
 		};
 	}
 
 	/**
-	 * Fast-forward a local branch (not checked out anywhere) to the given remote
-	 * SHA if the local tip is a strict ancestor of it. Local-only or diverged
-	 * history is left untouched (diverged logs a warning).
-	 */
-	private fastForwardLocalBranch(
-		inv: GitInvocation,
-		branchName: string,
-		remoteSha: string,
-	): void {
-		try {
-			const localSha = this.gitEnv
-				.run(inv, ["rev-parse", "--verify", `refs/heads/${branchName}`])
-				.trim();
-			if (!localSha || localSha === remoteSha) return;
-			const isAncestor = (a: string, b: string): boolean => {
-				try {
-					this.gitEnv.run(inv, ["merge-base", "--is-ancestor", a, b]);
-					return true;
-				} catch {
-					return false;
-				}
-			};
-			if (isAncestor(localSha, remoteSha)) {
-				this.gitEnv.run(inv, [
-					"update-ref",
-					`refs/heads/${branchName}`,
-					remoteSha,
-					localSha,
-				]);
-				this.logger.info(
-					`Fast-forwarded local branch ${branchName} to origin/${branchName}`,
-				);
-			} else if (!isAncestor(remoteSha, localSha)) {
-				this.logger.warn(
-					`Local branch ${branchName} has diverged from origin/${branchName}; keeping local commits`,
-				);
-			}
-		} catch (e) {
-			this.logger.warn(
-				`Could not update local branch ${branchName} from remote:`,
-				describeGitError(e),
-			);
-		}
-	}
-
-	/**
-	 * Remove the parent's OWN admin dir `<common>/worktrees/<name>` for a
-	 * validated name. This replaces `git worktree prune`, which would also
-	 * delete other sessions' admin dirs on the strength of a session-writable
-	 * `gitdir` file.
-	 */
-	private removeAdminDir(repositoryPath: string, adminName: string): void {
-		if (!isPlainComponent(adminName)) return;
-		try {
-			const common = realpathSync.native(join(repositoryPath, ".git"));
-			const dir = join(common, "worktrees", adminName);
-			if (lstatSync(dir).isDirectory()) {
-				rmSync(dir, { recursive: true, force: true });
-			}
-		} catch {
-			// already gone
-		}
-	}
-
-	/**
-	 * Create a single git worktree for one repository.
-	 * This is the core worktree creation logic, used by createGitWorktree for both
-	 * single-repo and multi-repo cases.
+	 * Create (or reuse) the session's standalone clone of one repository.
 	 *
-	 * Every git call runs under the parent-owned pins of {@link GitEnv}: the
-	 * repository location and the dangerous config keys come from the parent,
-	 * never from anything a session can write.
+	 * A clone replaces the old linked worktree: the session gets its own full
+	 * `.git` (objects copied with --no-hardlinks), so nothing under the shared
+	 * `~/repos/<name>` is reachable from the sandbox. Every parent git call
+	 * runs under the pins of {@link GitEnv}; the clone's `.git` is shape-checked
+	 * before any call and its config is re-stamped by the parent.
 	 *
 	 * @param workspacePathOverride - Override the workspace path (used for N-repo subdirectories)
 	 */
-	private async createSingleRepoWorktree(
+	private async createSingleRepoClone(
 		issue: Issue,
 		repository: RepositoryConfig,
 		globalSetupScript?: string,
@@ -929,7 +711,7 @@ export class GitService {
 		onRepoSetupHookEvent?: RepoSetupHookEventHandler,
 	): Promise<Workspace> {
 		this.logger.info(
-			`createSingleRepoWorktree for ${repository.name} (id=${repository.id}): baseBranchOverride=${baseBranchOverride ?? "undefined"}`,
+			`createSingleRepoClone for ${repository.name} (id=${repository.id}): baseBranchOverride=${baseBranchOverride ?? "undefined"}`,
 		);
 		// Build a fallback resolution for error paths where determineBaseBranch hasn't run
 		const fallbackResolution: BaseBranchResolution = baseBranchOverride
@@ -951,49 +733,27 @@ export class GitService {
 				.substring(0, 30)}`;
 		const branchName = this.sanitizeBranchName(rawBranchName);
 		const branchNames = { branchNames: { [repository.id]: branchName } };
-
-		const gitDirNamesFor = (
-			workspacePath: string,
-		): { gitDirNames?: Record<string, string> } => {
-			try {
-				const name = this.gitEnv.resolveAdminName(
-					repository.repositoryPath,
-					workspacePath,
-				);
-				return name ? { gitDirNames: { [repository.id]: name } } : {};
-			} catch {
-				return {};
-			}
-		};
+		const workspacePath =
+			workspacePathOverride ??
+			join(repository.workspaceBaseDir, issue.identifier);
+		let createdHere = false;
 
 		try {
 			// Verify this is a git repository
-			let inv: GitInvocation;
+			let repoInv: GitInvocation;
 			try {
-				inv = this.repoInv(repository.repositoryPath);
-				this.gitEnv.run(inv, ["rev-parse", "--git-dir"]);
+				repoInv = this.repoInv(repository.repositoryPath);
+				this.gitEnv.run(repoInv, ["rev-parse", "--git-dir"]);
 			} catch (_e) {
 				this.logger.error(
 					`${repository.repositoryPath} is not a git repository`,
 				);
 				throw new Error("Not a git repository");
 			}
-			const git = (args: string[]): string => this.gitEnv.run(inv, args);
 
-			const workspacePath =
-				workspacePathOverride ??
-				join(repository.workspaceBaseDir, issue.identifier);
-
-			// Ensure workspace directory's parent exists
-			mkdirSync(
-				workspacePathOverride
-					? join(workspacePath, "..")
-					: repository.workspaceBaseDir,
-				{ recursive: true },
-			);
+			mkdirSync(dirname(workspacePath), { recursive: true });
 
 			// Determine base branch early (commit-ish > graphite > parent > default)
-			// This runs before worktree existence checks so all return paths have the resolution
 			const resolution = await this.determineBaseBranch(
 				issue,
 				repository,
@@ -1001,253 +761,130 @@ export class GitService {
 			);
 			const baseBranch = resolution.branch;
 
-			// A registration whose directory is gone: re-add with --force when we
-			// cannot remove its admin dir by a validated name.
-			let forceAdd = false;
-
-			// Check if worktree already exists
+			// The trusted origin URL: read from the parent's repo config with the
+			// insteadOf post-check. Without it the clone is offline.
+			let remoteUrl: string | undefined;
 			try {
-				const worktrees = git(["worktree", "list", "--porcelain"]);
-
-				// Use exact line match to avoid substring false positives
-				// (e.g., "/path/CYSV-56" matching "/path/CYSV-56/cyrus")
-				const worktreeLines = worktrees
-					.split("\n")
-					.filter((line) => line.startsWith("worktree "))
-					.map((line) => line.substring("worktree ".length));
-
-				if (worktreeLines.includes(workspacePath)) {
-					// Verify the worktree is actually valid on disk (not a stale entry
-					// from a previous cleanup that deleted the directory)
-					if (this.isGitWorktree(workspacePath)) {
-						this.logger.info(
-							`Worktree already exists at ${workspacePath}, using existing`,
-						);
-						return {
-							path: workspacePath,
-							isGitWorktree: true,
-							resolvedBaseBranches: { [repository.id]: resolution },
-							...branchNames,
-							...gitDirNamesFor(workspacePath),
-						};
-					}
-					// Stale worktree entry: remove our own admin dir (no prune) and continue
-					this.logger.info(
-						`Stale worktree entry found for ${workspacePath}, removing its admin dir and recreating`,
-					);
-					const stale =
-						gitDirNamesFor(workspacePath).gitDirNames?.[repository.id];
-					if (stale) {
-						this.removeAdminDir(repository.repositoryPath, stale);
-					} else {
-						forceAdd = true;
-					}
-				}
-			} catch (_e) {
-				// git worktree command failed, continue with creation
-			}
-
-			// Check if branch already exists
-			let createBranch = true;
-			try {
-				git(["rev-parse", "--verify", branchName]);
-				createBranch = false;
-			} catch (_e) {
-				// Branch doesn't exist, we'll create it
-			}
-
-			// If the branch already exists, check if it's already checked out in another worktree
-			if (!createBranch) {
-				const existingWorktreePath = this.findWorktreeByBranch(
-					branchName,
-					repository.repositoryPath,
-				);
-				if (existingWorktreePath && existingWorktreePath !== workspacePath) {
-					this.logger.info(
-						`Branch "${branchName}" is already checked out in worktree at ${existingWorktreePath}, reusing existing worktree`,
-					);
-					return {
-						path: existingWorktreePath,
-						isGitWorktree: true,
-						resolvedBaseBranches: { [repository.id]: resolution },
-						...branchNames,
-						...gitDirNamesFor(existingWorktreePath),
-					};
-				}
-			}
-
-			// Fetch latest changes from remote. The URL is read from the parent's
-			// repo config, checked for insteadOf rewriting, and passed explicitly
-			// with an explicit refspec so a planted remote/branch config can not
-			// redirect where the credential is sent.
-			this.logger.debug("Fetching latest changes from remote...");
-			let hasRemote = true;
-			let remoteUrl = "";
-			try {
-				remoteUrl = this.remoteUrl(inv);
-				// --prune drops remote-tracking refs for branches deleted on the remote
-				// (e.g. a merged PR branch), so they are not mistaken for existing ones.
-				git([
-					"fetch",
-					"--prune",
-					"--",
-					remoteUrl,
-					"+refs/heads/*:refs/remotes/origin/*",
-				]);
+				remoteUrl = this.remoteUrl(repoInv);
 			} catch (e) {
 				this.logger.warn(
-					"Warning: git fetch failed, proceeding with local branch:",
+					"No trusted remote URL, proceeding offline:",
 					describeGitError(e),
 				);
-				hasRemote = false;
 			}
 
-			// Does the branch itself already exist on the remote (e.g. a previous
-			// worktree was deleted but its branch was pushed)? Only trust a
-			// non-empty SHA from the remote-tracking ref after the fetch above.
-			let remoteBranchSha = "";
-			if (hasRemote) {
+			// Reuse an existing clone only if it passes the shape check; anything
+			// else (a session-made pointer, a legacy worktree, stray files) is
+			// moved aside untouched and replaced.
+			const existing = this.classifyWorkspaceDir(workspacePath);
+			if (existing === "clone") {
 				try {
-					remoteBranchSha = git([
-						"rev-parse",
-						"--verify",
-						`refs/remotes/origin/${branchName}`,
-					]).trim();
-				} catch {
-					// No remote branch with this name
-				}
-			}
-
-			// Create the worktree - use determined base branch
-			let worktreeArgs: string[];
-			if (createBranch && remoteBranchSha) {
-				this.logger.info(
-					`Creating git worktree at ${workspacePath} from existing remote branch origin/${branchName}`,
-				);
-				worktreeArgs = [
-					"--track",
-					"-b",
-					branchName,
-					workspacePath,
-					`origin/${branchName}`,
-				];
-			} else if (createBranch) {
-				if (hasRemote) {
-					// Check if the base branch exists remotely
-					let useRemoteBranch = false;
-					try {
-						const remoteOutput = git([
-							"ls-remote",
-							"--heads",
-							"--",
-							remoteUrl,
-							baseBranch,
-						]);
-						// Check if output is non-empty (branch actually exists on remote)
-						useRemoteBranch = remoteOutput.trim().length > 0;
-						if (!useRemoteBranch) {
-							this.logger.info(
-								`Base branch '${baseBranch}' not found on remote, checking locally...`,
-							);
-						}
-					} catch {
-						// Base branch doesn't exist remotely, use local or fall back to default
-						this.logger.info(
-							`Base branch '${baseBranch}' not found on remote, checking locally...`,
-						);
-					}
-
-					if (useRemoteBranch) {
-						// Use remote version of base branch with --track to set upstream
-						const remoteBranch = `origin/${baseBranch}`;
-						this.logger.info(
-							`Creating git worktree at ${workspacePath} from ${remoteBranch} (tracking ${baseBranch})`,
-						);
-						worktreeArgs = [
-							"--track",
-							"-b",
-							branchName,
-							workspacePath,
-							remoteBranch,
-						];
-					} else {
-						// Check if base branch exists locally
-						try {
-							git(["rev-parse", "--verify", baseBranch]);
-							// Use local base branch (can't track since remote doesn't have it)
-							this.logger.info(
-								`Creating git worktree at ${workspacePath} from local ${baseBranch}`,
-							);
-							worktreeArgs = ["-b", branchName, workspacePath, baseBranch];
-						} catch {
-							// Base branch doesn't exist locally either, fall back to remote default with --track
-							this.logger.info(
-								`Base branch '${baseBranch}' not found locally, falling back to remote ${repository.baseBranch} (tracking ${repository.baseBranch})`,
-							);
-							worktreeArgs = [
-								"--track",
-								"-b",
-								branchName,
-								workspacePath,
-								`origin/${repository.baseBranch}`,
-							];
-						}
-					}
-				} else {
-					// No remote, use local branch (no tracking since no remote)
-					this.logger.info(
-						`Creating git worktree at ${workspacePath} from local ${baseBranch}`,
+					this.gitEnv.assertCloneShape(workspacePath);
+					return await this.reuseClone(
+						repoInv,
+						repository,
+						workspacePath,
+						branchName,
+						remoteUrl,
+						{ resolution, branchNames },
 					);
-					worktreeArgs = ["-b", branchName, workspacePath, baseBranch];
-				}
-			} else {
-				// Branch already exists locally. Fast-forward it to the remote
-				// branch when that is strictly ahead; never discard local commits.
-				if (remoteBranchSha) {
-					this.fastForwardLocalBranch(inv, branchName, remoteBranchSha);
-				}
-				// Just check it out
-				this.logger.info(
-					`Creating git worktree at ${workspacePath} with existing branch ${branchName}`,
-				);
-				worktreeArgs = [workspacePath, branchName];
-			}
-
-			// The new admin dir is the one that appears across `worktree add`
-			// (parent-only observation; no session exists yet).
-			const adminBefore = new Set(
-				this.gitEnv.listAdminDirs(repository.repositoryPath),
-			);
-			git(["worktree", "add", ...(forceAdd ? ["-f"] : []), ...worktreeArgs]);
-			let gitDirNames: Record<string, string> | undefined;
-			const added = this.gitEnv
-				.listAdminDirs(repository.repositoryPath)
-				.filter((n) => !adminBefore.has(n));
-			if (added.length === 1) {
-				gitDirNames = { [repository.id]: added[0] as string };
-			} else {
-				gitDirNames = gitDirNamesFor(workspacePath).gitDirNames;
-			}
-
-			// For a NEW branch, point its upstream at its own name on the remote
-			// (not the base branch that --track set). Sandboxed sessions cannot
-			// write .git/config, so they cannot run `git push -u`; doing it here
-			// keeps `@{u}..HEAD` accurate (unresolved until the first push, then 0).
-			if (createBranch) {
-				try {
-					git(["config", `branch.${branchName}.remote`, "origin"]);
-					git([
-						"config",
-						`branch.${branchName}.merge`,
-						`refs/heads/${branchName}`,
-					]);
 				} catch (e) {
+					if (!(e instanceof GitEnvError)) throw e;
 					this.logger.warn(
-						`Failed to set upstream for branch ${branchName}:`,
-						describeGitError(e),
+						`Existing clone for ${repository.name} failed the shape check (${e.message}); moving it aside`,
 					);
+					this.quarantine(workspacePath, "quarantine");
 				}
+			} else if (existing === "legacy-worktree") {
+				this.logger.warn(
+					`Existing git worktree for ${repository.name} replaced by a clone; the old directory is kept aside`,
+				);
+				this.quarantine(workspacePath, "worktree-old");
+			} else if (existing === "other") {
+				const aside = this.quarantine(workspacePath, "quarantine");
+				this.logger.info(
+					`Workspace path for ${repository.name} held something that is not a clone; moved aside to ${basename(aside)}`,
+				);
 			}
+
+			// GitHub -> source repository, in repo scope only (trusted config,
+			// explicit URL and refspec, credential helper). The clone is then
+			// updated from this LOCAL source; no network git ever runs against a
+			// config the session can write.
+			const hasRemote = this.refreshSource(repoInv, remoteUrl);
+
+			this.assertDiskSpace(repository.repositoryPath, dirname(workspacePath));
+
+			// Local clone of the parent-owned source. --no-hardlinks: shared
+			// inodes would let a session corrupt the source's objects. The file
+			// protocol is allowed for THIS call only (the pins set
+			// protocol.allow=never for everything else).
+			createdHere = true;
+			this.gitEnv.run(this.gitEnv.plainScope(dirname(workspacePath)), [
+				"-c",
+				"protocol.file.allow=always",
+				"clone",
+				"--no-hardlinks",
+				"--no-checkout",
+				// Shallow clones need the file:// transport (a plain path is a
+				// local copy that ignores --depth).
+				...(repository.cloneDepth
+					? ["--depth", String(repository.cloneDepth)]
+					: []),
+				"--",
+				repository.cloneDepth
+					? `file://${realpathSync.native(repository.repositoryPath)}`
+					: realpathSync.native(repository.repositoryPath),
+				workspacePath,
+			]);
+			this.gitEnv.restampCloneConfig(workspacePath, { remoteUrl });
+
+			const inv = (): GitInvocation => this.gitEnv.cloneScope(workspacePath);
+			const git = (args: string[]): string => this.gitEnv.run(inv(), args);
+
+			this.updateCloneFromSource(
+				repoInv,
+				repository,
+				workspacePath,
+				Boolean(repository.cloneDepth),
+			);
+
+			// Start point. The clone carries the source's local branches as
+			// origin/*; the fetch above refreshes them from the real remote.
+			const refExists = (ref: string): boolean => {
+				try {
+					git(["rev-parse", "--verify", "--quiet", ref]);
+					return true;
+				} catch {
+					return false;
+				}
+			};
+			let startPoint: string;
+			if (refExists(`refs/remotes/origin/${branchName}`)) {
+				this.logger.info(
+					`Creating branch ${branchName} from existing origin/${branchName}`,
+				);
+				startPoint = `origin/${branchName}`;
+			} else if (refExists(`refs/remotes/origin/${baseBranch}`)) {
+				this.logger.info(
+					`Creating branch ${branchName} from origin/${baseBranch}${hasRemote ? "" : " (offline)"}`,
+				);
+				startPoint = `origin/${baseBranch}`;
+			} else {
+				this.logger.info(
+					`Base branch '${baseBranch}' not found, falling back to ${repository.baseBranch}`,
+				);
+				startPoint = `origin/${repository.baseBranch}`;
+			}
+			// -B: the clone already has a local branch named like the source's HEAD
+			// branch; (re)point it at the start point instead of failing.
+			git(["checkout", "--no-track", "-B", branchName, startPoint]);
+			// branch.<name>.remote/merge point at the branch's own name on the
+			// remote (so @{u}..HEAD is accurate); the re-stamp writes them.
+			this.gitEnv.restampCloneConfig(workspacePath, {
+				remoteUrl,
+				branch: branchName,
+			});
 
 			// Copy files specified in .worktreeinclude that are also in .gitignore
 			// This runs before setup scripts so they can access these files
@@ -1279,64 +916,253 @@ export class GitService {
 				isGitWorktree: true,
 				resolvedBaseBranches: { [repository.id]: resolution },
 				...branchNames,
-				...(gitDirNames ? { gitDirNames } : {}),
 			};
 		} catch (error) {
-			const errorMessage = (error as Error).message;
-			this.logger.error(
-				"Failed to create git worktree:",
-				describeGitError(error),
-			);
-
-			// Check if the error is "branch already checked out in another worktree"
-			// Git error format: "fatal: 'branch-name' is already used by worktree at '/path/to/worktree'"
-			const worktreeMatch = errorMessage.match(
-				/already used by worktree at '([^']+)'/,
-			);
-			if (worktreeMatch?.[1] && existsSync(worktreeMatch[1])) {
-				this.logger.info(
-					`Reusing existing worktree at ${worktreeMatch[1]} (branch already checked out)`,
-				);
-				return {
-					path: worktreeMatch[1],
-					isGitWorktree: true,
-					resolvedBaseBranches: { [repository.id]: fallbackResolution },
-					...branchNames,
-					...gitDirNamesFor(worktreeMatch[1]),
-				};
+			this.logger.error("Failed to create git clone:", describeGitError(error));
+			// A half-made clone from THIS call holds nothing of the session's.
+			if (createdHere) {
+				rmSync(workspacePath, { recursive: true, force: true });
 			}
-
-			// Fall back to regular directory if git worktree fails
-			const fallbackPath =
-				workspacePathOverride ??
-				join(repository.workspaceBaseDir, issue.identifier);
-			mkdirSync(fallbackPath, { recursive: true });
+			// Fall back to a plain directory; the repo is flagged so it gets no
+			// git shape and no token dir.
+			mkdirSync(workspacePath, { recursive: true });
 			return {
-				path: fallbackPath,
+				path: workspacePath,
 				isGitWorktree: false,
 				resolvedBaseBranches: { [repository.id]: fallbackResolution },
 				...branchNames,
+				cloneFailed: [repository.id],
+				cloneFailures: { [repository.id]: cloneFailureReason(error) },
 			};
 		}
 	}
 
+	/** What is at `path`: nothing, an empty dir, a clone, a legacy worktree, or other. */
+	private classifyWorkspaceDir(
+		path: string,
+	): "none" | "empty" | "clone" | "legacy-worktree" | "other" {
+		let st: ReturnType<typeof lstatSync>;
+		try {
+			st = lstatSync(path);
+		} catch {
+			return "none";
+		}
+		if (!st.isDirectory()) return "other";
+		const entries = readdirSync(path);
+		if (entries.length === 0) return "empty";
+		if (!entries.includes(".git")) return "other";
+		try {
+			const g = lstatSync(join(path, ".git"));
+			if (g.isFile()) return "legacy-worktree";
+			return "clone"; // directory or symlink: the shape check decides
+		} catch {
+			return "other";
+		}
+	}
+
+	/** Move a directory aside, untouched, to `<path>.<kind>-<timestamp>`. */
+	private quarantine(
+		path: string,
+		kind: "quarantine" | "worktree-old",
+	): string {
+		const target = `${path}.${kind}-${Date.now()}`;
+		renameSync(path, target);
+		return target;
+	}
+
 	/**
-	 * Delete worktrees for a given issue identifier.
+	 * GitHub -> the parent-owned source repository (`~/repos/<name>`): explicit
+	 * trusted URL and refspec under the repo pins (credential helper included).
+	 * Returns false (offline) when it fails or there is no trusted URL.
+	 */
+	private refreshSource(repoInv: GitInvocation, remoteUrl?: string): boolean {
+		if (!remoteUrl) return false;
+		try {
+			this.gitEnv.run(repoInv, [
+				"fetch",
+				"--prune",
+				"--",
+				remoteUrl,
+				"+refs/heads/*:refs/remotes/origin/*",
+			]);
+			return true;
+		} catch (e) {
+			this.logger.warn(
+				"Warning: git fetch failed, proceeding with local refs:",
+				describeGitError(e),
+			);
+			return false;
+		}
+	}
+
+	/**
+	 * Update the clone's remote-tracking refs from the LOCAL source repository
+	 * (never from the network, no credential helper): the file protocol is
+	 * allowed for this call only. `shallow` keeps `--depth` (needs file://);
+	 * a source with no remote-tracking refs is skipped so --prune can not wipe
+	 * the clone's copies of the source's local branches.
+	 */
+	private updateCloneFromSource(
+		repoInv: GitInvocation,
+		repository: RepositoryConfig,
+		workspacePath: string,
+		shallow: boolean,
+	): boolean {
+		try {
+			const hasRemoteRefs =
+				this.gitEnv
+					.run(repoInv, [
+						"for-each-ref",
+						"--count=1",
+						"--format=%(refname)",
+						"refs/remotes/origin",
+					])
+					.trim() !== "";
+			if (!hasRemoteRefs) return false;
+			const source = realpathSync.native(repository.repositoryPath);
+			this.gitEnv.run(this.gitEnv.cloneScope(workspacePath), [
+				"-c",
+				"protocol.file.allow=always",
+				"fetch",
+				"--prune",
+				...(shallow && repository.cloneDepth
+					? ["--depth", String(repository.cloneDepth)]
+					: []),
+				"--",
+				shallow ? `file://${source}` : source,
+				"+refs/remotes/origin/*:refs/remotes/origin/*",
+			]);
+			return true;
+		} catch (e) {
+			this.logger.warn(
+				"Warning: could not update the clone from the source repository:",
+				describeGitError(e),
+			);
+			return false;
+		}
+	}
+
+	/**
+	 * Reuse a clone that passed the shape check: re-stamp its config, fetch with
+	 * the explicit URL, and fast-forward the session branch only when the tree
+	 * is clean and the branch is strictly behind its remote counterpart.
+	 */
+	private async reuseClone(
+		repoInv: GitInvocation,
+		repository: RepositoryConfig,
+		workspacePath: string,
+		branchName: string,
+		remoteUrl: string | undefined,
+		extra: {
+			resolution: BaseBranchResolution;
+			branchNames: { branchNames: Record<string, string> };
+		},
+	): Promise<Workspace> {
+		this.logger.info(
+			`Clone already exists at ${workspacePath}, using existing`,
+		);
+		this.gitEnv.restampCloneConfig(workspacePath, {
+			remoteUrl,
+			branch: branchName,
+		});
+		const hasRemote = this.refreshSource(repoInv, remoteUrl);
+		// --depth only for a clone that is already shallow: never turn a full
+		// clone shallow (or deepen a shallow one) by accident.
+		const shallow =
+			Boolean(repository.cloneDepth) &&
+			existsSync(join(workspacePath, ".git", "shallow"));
+		const updated = this.updateCloneFromSource(
+			repoInv,
+			repository,
+			workspacePath,
+			shallow,
+		);
+		if (hasRemote && updated) {
+			try {
+				const run = (args: string[]) =>
+					this.gitEnv.run(this.gitEnv.cloneScope(workspacePath), args);
+				const current = run(["branch", "--show-current"]).trim();
+				const clean =
+					run(["status", "--porcelain", "--untracked-files=no"]).trim() === "";
+				if (current === branchName && clean) {
+					let behind = false;
+					try {
+						run([
+							"merge-base",
+							"--is-ancestor",
+							"HEAD",
+							`origin/${branchName}`,
+						]);
+						behind =
+							run(["rev-parse", "HEAD"]).trim() !==
+							run(["rev-parse", `origin/${branchName}`]).trim();
+					} catch {
+						behind = false;
+					}
+					if (behind) {
+						run(["merge", "--ff-only", `origin/${branchName}`]);
+						this.logger.info(
+							`Fast-forwarded ${branchName} to origin/${branchName}`,
+						);
+					}
+				} else if (current === branchName) {
+					this.logger.info(
+						`Clone for ${repository.name} has local changes; not fast-forwarding`,
+					);
+				}
+			} catch (e) {
+				this.logger.warn(
+					`Could not fast-forward ${branchName}: ${describeGitError(e)}`,
+				);
+			}
+		}
+		return {
+			path: workspacePath,
+			isGitWorktree: true,
+			resolvedBaseBranches: { [repository.id]: extra.resolution },
+			...extra.branchNames,
+		};
+	}
+
+	/**
+	 * Refuse a clone when free space is below max(2 x the source object
+	 * database, 2 GB) (or the configured minimum): the copy is not hardlinked.
+	 */
+	private assertDiskSpace(sourceRepoPath: string, destParent: string): void {
+		const objects = join(sourceRepoPath, ".git", "objects");
+		let size = 0;
+		const walk = (dir: string): void => {
+			for (const entry of readdirSync(dir, { withFileTypes: true })) {
+				const p = join(dir, entry.name);
+				if (entry.isDirectory()) walk(p);
+				else if (entry.isFile()) size += lstatSync(p).size;
+			}
+		};
+		try {
+			walk(objects);
+		} catch {
+			// unreadable object db: let git report it
+		}
+		const need = Math.max(2 * size, this.cloneMinFreeBytes);
+		const fsStat = statfsSync(destParent);
+		const free = fsStat.bavail * fsStat.bsize;
+		if (free < need) {
+			throw new Error(
+				`Not enough free disk space to clone (${Math.floor(free / 1e6)} MB free, ${Math.floor(need / 1e6)} MB needed)`,
+			);
+		}
+	}
+
+	/**
+	 * Delete the clone(s) for an issue: run the repos' teardown scripts, then
+	 * remove the parent-chosen directory. No git command runs in the clone.
+	 * (A leftover legacy linked worktree also has its admin dir in the shared
+	 * repo removed, by validated name, without running git.)
 	 *
-	 * Removes all git worktrees under the workspace directory for the issue,
-	 * handling both single-repo and multi-repo layouts since the issue identifier
-	 * directory is the root in both cases.
-	 *
-	 * If `options.repositories` is supplied, each repo's per-repo
-	 * `cyrus-teardown.sh` (if present in its repo root) is invoked **before**
-	 * the worktrees are removed, with `cwd` set to that repo's worktree
-	 * subdirectory. A failure in one repo's teardown does not block the others
-	 * or the final `rmSync`.
-	 *
-	 * @param issueIdentifier - The issue identifier (e.g., "DEF-123")
+	 * @param issueIdentifier - The workspace directory name (e.g., "DEF-123")
 	 * @param options - Optional teardown wiring (see {@link DeleteWorktreeOptions})
 	 */
-	async deleteWorktree(
+	async deleteWorkspace(
 		issueIdentifier: string,
 		options: DeleteWorktreeOptions = {},
 	): Promise<void> {
@@ -1347,79 +1173,249 @@ export class GitService {
 
 		if (!existsSync(workspacePath)) {
 			this.logger.info(
-				`Worktree directory does not exist for ${issueIdentifier}, nothing to delete`,
+				`Workspace directory does not exist for ${issueIdentifier}, nothing to delete`,
 			);
 			return;
 		}
 
 		this.logger.info(
-			`Deleting worktree directory for ${issueIdentifier} at ${workspacePath}`,
+			`Deleting workspace directory for ${issueIdentifier} at ${workspacePath}`,
 		);
 
-		// Find all git worktrees that are within this workspace path.
-		// In multi-repo layouts, there may be subdirectories that are each worktrees.
-		const worktreePaths = this.findWorktreesUnderPath(workspacePath);
-
-		// Run per-repo teardown scripts before any worktree is torn down.
-		// Each repo's script runs with cwd set to its own worktree subdirectory.
+		// Run per-repo teardown scripts before anything is removed.
 		await this.runTeardownsForIssue({
 			issueIdentifier,
 			workspacePath,
 			repositories: options.repositories,
 		});
 
-		// Each worktree is matched to a CONFIGURED repository by the admin dir
-		// whose `gitdir` equals `<worktree>/.git`; the pointers inside the
-		// worktree are never followed. No `git worktree prune`: prune acts on
-		// every admin dir on the strength of a session-writable `gitdir` file.
-		if (worktreePaths.length > 0 && !options.repositories?.length) {
-			this.logger.warn(
-				`deleteWorktree(${issueIdentifier}) called without repositories: git worktree registrations are not removed (the directory is)`,
-			);
-		}
-		const owned: Array<{ repositoryPath: string; adminName: string }> = [];
-		for (const wtPath of worktreePaths) {
+		// Legacy linked worktrees: drop their admin dir in the shared repo.
+		for (const dir of [workspacePath, ...this.childDirs(workspacePath)]) {
+			if (this.classifyWorkspaceDir(dir) !== "legacy-worktree") continue;
 			for (const repo of options.repositories ?? []) {
-				let adminName: string | null = null;
 				try {
-					adminName = this.gitEnv.resolveAdminName(repo.repositoryPath, wtPath);
+					const name = this.gitEnv.resolveAdminName(repo.repositoryPath, dir);
+					if (name) {
+						this.removeAdminDir(repo.repositoryPath, name);
+						break;
+					}
 				} catch {
-					adminName = null;
+					// not this repo
 				}
-				if (!adminName) continue;
-				owned.push({ repositoryPath: repo.repositoryPath, adminName });
-				try {
-					this.logger.info(`Removing git worktree: ${wtPath}`);
-					this.gitEnv.run(
-						this.repoInv(repo.repositoryPath),
-						["worktree", "remove", "--force", wtPath],
-						{ timeout: 30_000 },
-					);
-				} catch (error) {
-					this.logger.warn(
-						`Failed to remove git worktree at ${wtPath}: ${describeGitError(error)}`,
-					);
-					// Continue with directory deletion even if git worktree remove fails
-				}
-				break;
 			}
 		}
 
-		// Remove the entire workspace directory
 		try {
 			rmSync(workspacePath, { recursive: true, force: true });
-			this.logger.info(`Deleted worktree directory for ${issueIdentifier}`);
+			this.logger.info(`Deleted workspace directory for ${issueIdentifier}`);
 		} catch (error) {
 			this.logger.error(
-				`Failed to delete worktree directory for ${issueIdentifier}: ${(error as Error).message}`,
+				`Failed to delete workspace directory for ${issueIdentifier}: ${(error as Error).message}`,
 			);
 		}
+	}
 
-		// If `worktree remove` failed above, the directory is gone but the
-		// registration is stale: drop only our own validated admin dirs.
-		for (const { repositoryPath, adminName } of owned) {
-			this.removeAdminDir(repositoryPath, adminName);
+	/** @deprecated Kept for one release; use {@link deleteWorkspace}. */
+	async deleteWorktree(
+		issueIdentifier: string,
+		options: DeleteWorktreeOptions = {},
+	): Promise<void> {
+		return this.deleteWorkspace(issueIdentifier, options);
+	}
+
+	private childDirs(dir: string): string[] {
+		try {
+			return readdirSync(dir, { withFileTypes: true })
+				.filter((e) => e.isDirectory())
+				.map((e) => join(dir, e.name));
+		} catch {
+			return [];
 		}
+	}
+
+	/**
+	 * Remove the parent's OWN admin dir `<common>/worktrees/<name>` of a legacy
+	 * linked worktree (validated plain name, real directory). Never
+	 * `git worktree prune`.
+	 */
+	private removeAdminDir(repositoryPath: string, adminName: string): void {
+		if (!isPlainComponent(adminName)) return;
+		try {
+			const common = realpathSync.native(join(repositoryPath, ".git"));
+			const dir = join(common, "worktrees", adminName);
+			if (lstatSync(dir).isDirectory()) {
+				rmSync(dir, { recursive: true, force: true });
+			}
+		} catch {
+			// already gone
+		}
+	}
+
+	/**
+	 * Remove workspaces nobody can need any more. Candidates are PR clones
+	 * (`<repo>-PR-<n>`, older than `maxAgeDays`) and set-aside directories
+	 * (`*.quarantine-*`, `*.worktree-old-*`, older than 7 days). A workspace
+	 * that a live or parked session references is never removed; Linear issue
+	 * workspaces are governed by the terminal-state teardown only.
+	 *
+	 * @returns the directory names removed
+	 */
+	sweepWorkspaces(opts: {
+		baseDirs: string[];
+		isInUse: (path: string) => boolean;
+		maxAgeDays: number;
+		now?: number;
+	}): string[] {
+		const now = opts.now ?? Date.now();
+		const removed: string[] = [];
+		for (const baseDir of new Set(opts.baseDirs)) {
+			let entries: string[];
+			try {
+				entries = readdirSync(baseDir);
+			} catch {
+				continue;
+			}
+			for (const name of entries) {
+				const isAside = /\.(quarantine|worktree-old)-\d+$/.test(name);
+				const isPr = /-(PR|MR)-\d+$/.test(name);
+				if (!isAside && !isPr) continue;
+				const path = join(baseDir, name);
+				const maxAgeMs = (isAside ? 7 : opts.maxAgeDays) * 86_400_000;
+				try {
+					const st = lstatSync(path);
+					if (!st.isDirectory() || now - st.mtimeMs < maxAgeMs) continue;
+					if (opts.isInUse(path)) continue;
+					rmSync(path, { recursive: true, force: true });
+					removed.push(name);
+				} catch (e) {
+					this.logger.warn(
+						`Sweep could not remove ${name}: ${(e as Error).message}`,
+					);
+				}
+			}
+		}
+		if (removed.length > 0) {
+			this.logger.info(
+				`Swept ${removed.length} stale workspace(s): ${removed.join(", ")}`,
+			);
+		}
+		return removed;
+	}
+
+	/**
+	 * Cutover from linked worktrees to clones (plan section 9). For each
+	 * top-level workspace directory containing legacy linked worktrees:
+	 *  1. POINTER CHECKS before any git call (the directories are session
+	 *     written): the gitfile must be exactly `gitdir: <repo>/.git/worktrees/<n>`
+	 *     for a configured repo and plain `<n>`, `<admin>/commondir` must be
+	 *     `../..`, the admin dir must resolve inside the repo's `worktrees`, and
+	 *     `<admin>/gitdir` must equal `<ws>/.git`. Any failure: no git is run
+	 *     there and the directory is set aside unexamined.
+	 *  2. Dirty check (`status --porcelain --untracked-files=no`) under the
+	 *     Stage A pins built from the verified values. Dirty directories stay
+	 *     where they are unless `discard` is set (then they are set aside too).
+	 *  3. Clean directories are set aside as `<dir>.worktree-old-<ts>` (kept 7
+	 *     days by the sweep). Nothing is deleted and no `git worktree prune` or
+	 *     `repair` runs.
+	 *
+	 * Returns directory NAMES only.
+	 */
+	migrateLegacyWorktrees(opts: {
+		baseDirs: string[];
+		repositories: RepositoryConfig[];
+		isInUse?: (path: string) => boolean;
+		discard?: boolean;
+	}): { moved: string[]; dirty: string[]; invalid: string[] } {
+		const result = {
+			moved: [] as string[],
+			dirty: [] as string[],
+			invalid: [] as string[],
+		};
+		const repoRoots = new Map<string, RepositoryConfig>();
+		for (const repo of opts.repositories) {
+			try {
+				repoRoots.set(realpathSync.native(repo.repositoryPath), repo);
+			} catch {
+				// unresolvable repo: nothing can be verified against it
+			}
+		}
+		type Verdict = "ok" | "invalid" | "dirty";
+		// Admin dirs whose pointers were verified: removed (by plain name) for
+		// every worktree the cutover retires, so no dangling registration stays.
+		let verified: Array<{ repositoryPath: string; adminName: string }> = [];
+		const check = (wt: string): Verdict => {
+			try {
+				const m = readFileSync(join(wt, ".git"), "utf8")
+					.trim()
+					.match(/^gitdir: (.+)$/);
+				if (!m?.[1]) return "invalid";
+				const adminPath = m[1];
+				const name = basename(adminPath);
+				const rootCandidate = dirname(dirname(dirname(adminPath)));
+				const repo = repoRoots.get(rootCandidate);
+				if (
+					!repo ||
+					!isPlainComponent(name) ||
+					adminPath !== join(rootCandidate, ".git", "worktrees", name)
+				) {
+					return "invalid";
+				}
+				const adminReal = realpathSync.native(adminPath);
+				const worktreesReal = realpathSync.native(
+					join(rootCandidate, ".git", "worktrees"),
+				);
+				if (dirname(adminReal) !== worktreesReal) return "invalid";
+				if (
+					readFileSync(join(adminPath, "commondir"), "utf8").trim() !== "../.."
+				) {
+					return "invalid";
+				}
+				if (
+					readFileSync(join(adminPath, "gitdir"), "utf8").trim() !==
+					join(realpathSync.native(wt), ".git")
+				) {
+					return "invalid";
+				}
+				verified.push({ repositoryPath: repo.repositoryPath, adminName: name });
+				const inv = this.gitEnv.sessionScope({
+					repositoryId: repo.id,
+					repositoryPath: repo.repositoryPath,
+					workspacePath: wt,
+					adminName: name,
+				});
+				const status = this.gitEnv
+					.run(inv, ["status", "--porcelain", "--untracked-files=no"])
+					.trim();
+				return status === "" ? "ok" : "dirty";
+			} catch {
+				return "invalid";
+			}
+		};
+		for (const baseDir of new Set(opts.baseDirs)) {
+			for (const top of this.childDirs(baseDir)) {
+				if (/\.(quarantine|worktree-old)-\d+$/.test(top)) continue;
+				const members = [top, ...this.childDirs(top)].filter(
+					(d) => this.classifyWorkspaceDir(d) === "legacy-worktree",
+				);
+				if (members.length === 0) continue;
+				if (opts.isInUse?.(top)) continue;
+				verified = [];
+				const verdicts = members.map(check);
+				const topName = basename(top);
+				if (verdicts.includes("invalid")) {
+					result.invalid.push(topName);
+				} else if (verdicts.includes("dirty") && !opts.discard) {
+					result.dirty.push(topName);
+					continue;
+				}
+				this.quarantine(top, "worktree-old");
+				for (const { repositoryPath, adminName } of verified) {
+					this.removeAdminDir(repositoryPath, adminName);
+				}
+				result.moved.push(topName);
+			}
+		}
+		return result;
 	}
 
 	/**
@@ -1475,54 +1471,6 @@ export class GitService {
 					`Unexpected error running teardown for ${workspacePath}: ${(error as Error).message}`,
 				);
 			}
-		}
-	}
-
-	/**
-	 * Find all git worktree paths that are located under a given directory.
-	 * Checks the directory itself and its immediate subdirectories (for multi-repo layouts).
-	 */
-	private findWorktreesUnderPath(dirPath: string): string[] {
-		const worktrees: string[] = [];
-
-		// Check if the directory itself is a git worktree
-		if (this.isGitWorktree(dirPath)) {
-			worktrees.push(dirPath);
-			return worktrees;
-		}
-
-		// Check immediate subdirectories (multi-repo layout: each repo is a subdirectory)
-		try {
-			const entries = readdirSync(dirPath, { withFileTypes: true });
-			for (const entry of entries) {
-				if (entry.isDirectory()) {
-					const subPath = join(dirPath, entry.name);
-					if (this.isGitWorktree(subPath)) {
-						worktrees.push(subPath);
-					}
-				}
-			}
-		} catch {
-			// Directory listing failed, skip
-		}
-
-		return worktrees;
-	}
-
-	/**
-	 * Check if a directory is a git worktree (has a .git file, not a .git directory).
-	 */
-	private isGitWorktree(dirPath: string): boolean {
-		try {
-			const gitPath = join(dirPath, ".git");
-			if (!existsSync(gitPath)) {
-				return false;
-			}
-			const stats = statSync(gitPath);
-			// Worktrees have a .git file (not directory) that points to the main repo
-			return stats.isFile();
-		} catch {
-			return false;
 		}
 	}
 

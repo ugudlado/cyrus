@@ -363,6 +363,12 @@ export const RepositoryConfigSchema = z.object({
 	repositoryPath: z.string(),
 	baseBranch: z.string(),
 	/**
+	 * Optional shallow session clones: when set, each session clone is made with
+	 * `--depth N` from `file://<repositoryPath>` and later fetches keep that
+	 * depth. Unset (default): full-history local clone.
+	 */
+	cloneDepth: z.number().int().positive().optional(),
+	/**
 	 * Repository URL in the https form, e.g. `https://github.com/owner/repo`.
 	 * Routing hints (`[repo=owner/repo]`) and GitHub webhook matching strip the
 	 * `https://github.com/` prefix and match the trailing `/owner/repo`, so
@@ -478,6 +484,15 @@ export const EdgeConfigSchema = z.object({
 	 * otherwise falls back to "claude".
 	 */
 	defaultRunner: RunnerTypeSchema.optional(),
+
+	/**
+	 * Restrict which runners sessions may use. Absent: all runners. When set,
+	 * a runner picked by a label, a description selector (`[agent=...]`), a
+	 * model label or `defaultRunner` that is not listed is replaced by the first
+	 * listed runner. `defaultRunner` must itself be in the list (see
+	 * {@link validateAllowedRunners}).
+	 */
+	allowedRunners: z.array(RunnerTypeSchema).min(1).optional(),
 
 	/**
 	 * @deprecated Use claudeDefaultModel instead.
@@ -659,6 +674,21 @@ export const EdgeConfigSchema = z.object({
 	 * shim. When unset the PR marker hook does not run `gh`.
 	 */
 	ghBinary: z.string().optional(),
+
+	/**
+	 * Absolute directory (`~/` allowed) holding per-repository GitHub tokens at
+	 * `<dir>/<owner>/<name>/token` (owner and name lowercase). Each session's
+	 * sandbox may read exactly the token directories of its own repositories;
+	 * unset disables the grant.
+	 */
+	githubTokenDir: z.string().optional(),
+
+	/**
+	 * Days a pull-request clone (`<repo>-PR-<n>`) may sit idle before the sweep
+	 * removes it (default 14). Workspaces used by a live or parked session are
+	 * never swept.
+	 */
+	prCloneMaxAgeDays: z.number().int().positive().optional(),
 });
 
 /**
@@ -797,4 +827,19 @@ export function requireLinearWorkspaceId(repo: RepositoryConfig): string {
 		);
 	}
 	return repo.linearWorkspaceId;
+}
+
+/**
+ * Problems with `allowedRunners` (empty = valid): a `defaultRunner` outside the
+ * list can never be used.
+ */
+export function validateAllowedRunners(config: {
+	allowedRunners?: RunnerType[];
+	defaultRunner?: RunnerType;
+}): string[] {
+	const { allowedRunners, defaultRunner } = config;
+	if (!allowedRunners || !defaultRunner) return [];
+	return allowedRunners.includes(defaultRunner)
+		? []
+		: [`defaultRunner "${defaultRunner}" is not in allowedRunners`];
 }

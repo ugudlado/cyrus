@@ -277,7 +277,12 @@ export class WorkerService {
 						onRepoSetupHookEvent?: RepoSetupHookEventHandler;
 					},
 				): Promise<Workspace> => {
-					return this.gitService.createGitWorktree(issue, repositories, {
+					// The EdgeWorker's own GitService carries the configured git pins
+					// (hooks dir, credential helper, untrusted mode); the injected one
+					// is only the fallback before the worker exists.
+					const gitService =
+						this.edgeWorker?.getGitService?.() ?? this.gitService;
+					return gitService.createGitWorktree(issue, repositories, {
 						globalSetupScript: edgeConfig.global_setup_script,
 						baseBranchOverrides: options?.baseBranchOverrides,
 						onRepoSetupHookEvent: options?.onRepoSetupHookEvent,

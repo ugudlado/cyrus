@@ -7,7 +7,9 @@ import {
 	readdirSync,
 	readFileSync,
 	realpathSync,
+	renameSync,
 	rmSync,
+	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, sep } from "node:path";
@@ -55,6 +57,7 @@ core.fsmonitor=false
 credential.helper=
 credential.https://github.com.helper=
 credential.https://github.com.helper=@CRED@
+credential.https://github.com.useHttpPath=true
 core.sshCommand=/bin/false
 core.gitProxy=
 http.proxy=
@@ -488,6 +491,198 @@ export class GitEnv {
 		};
 	}
 
+	/**
+	 * Pins WITHOUT a repository location, for `git clone` (which must create
+	 * its own git dir: GIT_DIR in the env would redirect it) and for calls that
+	 * need no repository. `cwd` is a parent-owned directory.
+	 */
+	plainScope(cwd: string): GitInvocation {
+		return { cwd, env: this.pinnedEnv() };
+	}
+
+	/**
+	 * Verify that `<workspace>/.git` is the standalone clone the parent made and
+	 * not something a session turned into a pointer: a real directory, no
+	 * `commondir`, no `objects/info/alternates`, no symlinked `hooks`, `objects`,
+	 * `refs`, `info` or `config`, a plain HEAD, and a realpath inside the
+	 * workspace. Run before ANY parent git call in an existing clone. Returns the
+	 * real paths; throws GitEnvError otherwise.
+	 */
+	assertCloneShape(workspacePath: string): {
+		workTree: string;
+		gitDir: string;
+	} {
+		let workTree: string;
+		try {
+			workTree = realpathSync.native(workspacePath);
+		} catch {
+			throw new GitEnvError("clone: workspace is not resolvable");
+		}
+		const gitPath = join(workTree, ".git");
+		let st: ReturnType<typeof lstatSync>;
+		try {
+			st = lstatSync(gitPath);
+		} catch {
+			throw new GitEnvError("clone: .git is missing");
+		}
+		if (st.isSymbolicLink() || !st.isDirectory()) {
+			throw new GitEnvError("clone: .git is not a real directory");
+		}
+		const gitDir = realpathSync.native(gitPath);
+		if (!insideDir(gitDir, workTree) || gitDir !== gitPath) {
+			throw new GitEnvError("clone: .git resolves outside the workspace");
+		}
+		if (existsSync(join(gitDir, "commondir"))) {
+			throw new GitEnvError("clone: .git/commondir present");
+		}
+		if (existsSync(join(gitDir, "objects", "info", "alternates"))) {
+			throw new GitEnvError("clone: objects/info/alternates present");
+		}
+		// No symlink ANYWHERE under .git (objects/pack, refs/remotes, logs/...):
+		// git and the parent's reads would follow it out of the clone.
+		const walk = (dir: string, rel: string): void => {
+			let entries: import("node:fs").Dirent[];
+			try {
+				entries = readdirSync(dir, { withFileTypes: true });
+			} catch {
+				throw new GitEnvError(`clone: cannot read .git/${rel}`);
+			}
+			for (const entry of entries) {
+				const entryRel = rel ? `${rel}/${entry.name}` : entry.name;
+				if (entry.isSymbolicLink()) {
+					throw new GitEnvError(`clone: .git/${entryRel} is a symlink`);
+				}
+				if (entry.isDirectory()) walk(join(dir, entry.name), entryRel);
+			}
+		};
+		walk(gitDir, "");
+		try {
+			const cfg = lstatSync(join(gitDir, "config"));
+			if (!cfg.isFile()) throw new GitEnvError("clone: .git/config not a file");
+		} catch (err) {
+			if (err instanceof GitEnvError) throw err;
+		}
+		let head: string;
+		try {
+			const headStat = lstatSync(join(gitDir, "HEAD"));
+			if (!headStat.isFile()) throw new GitEnvError("clone: HEAD not a file");
+			head = readFileSync(join(gitDir, "HEAD"), "utf8").trim();
+		} catch (err) {
+			if (err instanceof GitEnvError) throw err;
+			throw new GitEnvError("clone: HEAD is unreadable");
+		}
+		if (
+			!/^ref: refs\/heads\/\S+$/.test(head) &&
+			!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(head)
+		) {
+			throw new GitEnvError("clone: HEAD is not a branch ref or object id");
+		}
+		return { workTree, gitDir };
+	}
+
+	private neutralCwd(): string {
+		mkdirSync(this.cyrusHome, { recursive: true });
+		return this.cyrusHome;
+	}
+
+	/** Clone-scope pins: GIT_DIR=GIT_COMMON_DIR=<ws>/.git after the shape check. */
+	cloneScope(workspacePath: string, cwd?: string): GitInvocation {
+		const { workTree, gitDir } = this.assertCloneShape(workspacePath);
+		return {
+			cwd: cwd ?? workTree,
+			env: {
+				...this.pinnedEnv(),
+				GIT_DIR: gitDir,
+				GIT_COMMON_DIR: gitDir,
+				GIT_WORK_TREE: workTree,
+			},
+		};
+	}
+
+	/**
+	 * Rewrite `<ws>/.git/config` from scratch with the parent's fixed content
+	 * (atomic temp + rename; the rename replaces a symlink, it does not follow
+	 * it). Only these session settings survive: `user.name`, `user.email` and a
+	 * relative, non-escaping `core.hooksPath` (a husky-style project hooks
+	 * dir). Everything else, including anything planted, is dropped. The
+	 * parent's security rests on the env pins and the shape check, not on this.
+	 */
+	restampCloneConfig(
+		workspacePath: string,
+		opts: { remoteUrl?: string; branch?: string },
+	): void {
+		const { gitDir } = this.assertCloneShape(workspacePath);
+		const keep: string[] = [];
+		const readKey = (key: string): string | undefined => {
+			try {
+				const out = execFileSync(
+					"git",
+					[
+						"config",
+						"--file",
+						join(gitDir, "config"),
+						"--no-includes",
+						"--get",
+						key,
+					],
+					{
+						// Neutral cwd: nothing is discovered from the workspace.
+						cwd: this.neutralCwd(),
+						env: { ...this.pinnedEnv(), GIT_CONFIG_COUNT: "0" },
+						encoding: "utf8",
+						stdio: ["ignore", "pipe", "ignore"],
+					},
+				).trim();
+				return out || undefined;
+			} catch {
+				return undefined;
+			}
+		};
+		const quote = (v: string) =>
+			`"${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+		const name = readKey("user.name");
+		const email = readKey("user.email");
+		const hooksPath = readKey("core.hooksPath");
+		if (name || email) {
+			keep.push("[user]");
+			if (name && !/[\n\r]/.test(name)) keep.push(`\tname = ${quote(name)}`);
+			if (email && !/[\n\r]/.test(email))
+				keep.push(`\temail = ${quote(email)}`);
+		}
+		if (
+			hooksPath &&
+			!hooksPath.startsWith("/") &&
+			!hooksPath.split("/").includes("..") &&
+			!/[\n\r"]/.test(hooksPath)
+		) {
+			keep.push("[core]", `\thooksPath = ${quote(hooksPath)}`);
+		}
+		const lines = [
+			"[core]",
+			"\trepositoryformatversion = 0",
+			"\tfilemode = true",
+			"\tbare = false",
+			"\tlogallrefupdates = true",
+		];
+		if (opts.remoteUrl) {
+			lines.push(
+				'[remote "origin"]',
+				`\turl = ${quote(opts.remoteUrl)}`,
+				"\tfetch = +refs/heads/*:refs/remotes/origin/*",
+			);
+		}
+		if (opts.branch && opts.remoteUrl) {
+			lines.push(
+				`[branch ${quote(opts.branch)}]`,
+				"\tremote = origin",
+				`\tmerge = ${quote(`refs/heads/${opts.branch}`)}`,
+			);
+		}
+		const tmp = join(gitDir, `config.restamp-${process.pid}-${Date.now()}`);
+		writeFileSync(tmp, `${[...lines, ...keep].join("\n")}\n`, { mode: 0o600 });
+		renameSync(tmp, join(gitDir, "config"));
+	}
+
 	/** Run git under `inv`. Throws like execFileSync. */
 	run(
 		inv: GitInvocation,
@@ -562,6 +757,11 @@ export class SessionGit {
 		const target = this.targetFor(cwd);
 		if (!target) return null;
 		try {
+			// A standalone clone (Stage B): pins come from the clone itself after
+			// the shape check. A `.git` FILE is a legacy linked worktree (Stage A).
+			if (isRealDirectory(join(target.workspacePath, ".git"))) {
+				return this.gitEnv.cloneScope(target.workspacePath, cwd);
+			}
 			const key = target.workspacePath;
 			const adminName = target.adminName ?? this.adminNames.get(key);
 			const inv = this.gitEnv.sessionScope({ ...target, adminName }, cwd);

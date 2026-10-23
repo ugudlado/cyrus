@@ -154,6 +154,24 @@ export class ActivityPoster {
 		);
 	}
 
+	/** Post an error activity (names and short reasons only, no secrets). */
+	async postErrorActivity(
+		sessionId: string,
+		workspaceId: string,
+		body: string,
+	): Promise<void> {
+		const issueTracker = this.issueTrackers.get(workspaceId);
+		if (!issueTracker) {
+			this.logger.warn(`No issue tracker found for workspace ${workspaceId}`);
+			return;
+		}
+		await this.postActivityDirect(
+			issueTracker,
+			{ agentSessionId: sessionId, content: { type: "error", body } },
+			"error",
+		);
+	}
+
 	async postRepoSetupHookActivity(
 		sessionId: string,
 		workspaceId: string,

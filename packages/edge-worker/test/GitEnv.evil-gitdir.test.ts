@@ -154,14 +154,15 @@ describe.each([
 		}
 	});
 
-	it("GitService repo-scope calls run nothing from the evil dir and succeed", async () => {
+	it("GitService calls run nothing from the evil dir and succeed", async () => {
 		forge(fx, evil.dir, vector);
 		const service = new GitService(
-			{ cyrusHome: join(fx.root, "home"), gitAllowFileProtocol: true },
+			{
+				cyrusHome: join(fx.root, "home"),
+				gitAllowFileProtocol: true,
+				cloneMinFreeBytes: 0,
+			},
 			silentLogger,
-		);
-		expect(service.findWorktreeByBranch("main", fx.repo)).toBe(
-			realpathSync.native(fx.ws),
 		);
 		expect(await service.branchExists("main", fx.repo)).toBe(true);
 		const created = await service.createGitWorktree(
@@ -183,14 +184,7 @@ describe.each([
 		);
 		expect(created.isGitWorktree).toBe(true);
 		expect(existsSync(join(created.path, "README.md"))).toBe(true);
-		// Metadata discovery is plain file reads and the sandbox grant
-		// refuses the forged common dir.
-		expect(
-			service.getWritableGitMetadataDirectories([
-				{ workingDirectory: fx.ws, repositoryPath: fx.repo },
-			]),
-		).toEqual([]);
-		await service.deleteWorktree("ENG-2", {
+		await service.deleteWorkspace("ENG-2", {
 			repositories: [
 				{ id: "repo-1", name: "repo", repositoryPath: fx.repo } as never,
 			],

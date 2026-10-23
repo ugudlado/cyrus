@@ -80,6 +80,9 @@ const RELOAD_EXEMPT_KEYS = [
 	"gitHooksDir",
 	"gitCredentialHelper",
 	"ghBinary",
+	"allowedRunners",
+	"githubTokenDir",
+	"prCloneMaxAgeDays",
 ] as const satisfies readonly (keyof EdgeConfig)[];
 
 /**

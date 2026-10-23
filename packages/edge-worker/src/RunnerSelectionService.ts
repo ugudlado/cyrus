@@ -1,10 +1,33 @@
-import type { EdgeWorkerConfig, RunnerType } from "cyrus-core";
+import type { EdgeWorkerConfig, ILogger, RunnerType } from "cyrus-core";
 
 export class RunnerSelectionService {
 	private config: EdgeWorkerConfig;
 
-	constructor(config: EdgeWorkerConfig) {
+	private logger?: ILogger;
+
+	constructor(config: EdgeWorkerConfig, logger?: ILogger) {
 		this.config = config;
+		this.logger = logger;
+	}
+
+	/** True when `allowedRunners` is absent or lists `runnerType`. */
+	public isRunnerAllowed(runnerType: RunnerType): boolean {
+		const allowed = this.config.allowedRunners;
+		return !allowed || allowed.length === 0 || allowed.includes(runnerType);
+	}
+
+	/**
+	 * Replace a runner that `allowedRunners` does not permit by the first
+	 * permitted one (normally "claude"), logging both names. Identity when the
+	 * runner is allowed or no restriction is configured.
+	 */
+	public coerceRunner(runnerType: RunnerType): RunnerType {
+		if (this.isRunnerAllowed(runnerType)) return runnerType;
+		const used = this.config.allowedRunners?.[0] ?? "claude";
+		this.logger?.info(
+			`Runner "${runnerType}" is not in allowedRunners; using "${used}" instead`,
+		);
+		return used;
 	}
 
 	/**
@@ -23,6 +46,10 @@ export class RunnerSelectionService {
 	 * 3. Fall back to "claude"
 	 */
 	public getDefaultRunner(): RunnerType {
+		return this.coerceRunner(this.resolveDefaultRunner());
+	}
+
+	private resolveDefaultRunner(): RunnerType {
 		if (this.config.defaultRunner) {
 			return this.config.defaultRunner;
 		}
@@ -136,6 +163,22 @@ export class RunnerSelectionService {
 	 * 5. Defaults to configured/default runner
 	 */
 	public determineRunnerSelection(
+		labels: string[],
+		issueDescription?: string,
+	): {
+		runnerType: RunnerType;
+		modelOverride?: string;
+		fallbackModelOverride?: string;
+	} {
+		const selection = this.selectRunnerUnrestricted(labels, issueDescription);
+		const runnerType = this.coerceRunner(selection.runnerType);
+		if (runnerType === selection.runnerType) return selection;
+		// Model overrides named for the requested runner do not apply to its
+		// replacement: use the replacement's defaults.
+		return { runnerType };
+	}
+
+	private selectRunnerUnrestricted(
 		labels: string[],
 		issueDescription?: string,
 	): {

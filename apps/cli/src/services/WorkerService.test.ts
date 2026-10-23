@@ -144,6 +144,9 @@ describe("WorkerService", () => {
 			gitHooksDir: "/var/lib/kittu/no-hooks",
 			gitCredentialHelper: "/usr/local/libexec/kittu-git-credential",
 			ghBinary: "/usr/bin/gh",
+			githubTokenDir: "~/.kittu/gh-tokens",
+			allowedRunners: ["claude"],
+			prCloneMaxAgeDays: 7,
 		});
 
 		// Fixture-completeness tripwire: adding a field to EdgeConfigSchema

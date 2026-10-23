@@ -131,7 +131,7 @@ describe("GitService.createGitWorktree with a real remote branch", () => {
 		);
 	});
 
-	it("local branch behind remote is fast-forwarded", async () => {
+	it("a stale local branch in the source repo is irrelevant: the clone continues from the remote branch", async () => {
 		pushRemoteBranch(1);
 		git(repo, `branch ${BRANCH} origin/main`); // stale local copy
 		const staleSha = git(repo, `rev-parse ${BRANCH}`);
@@ -140,22 +140,22 @@ describe("GitService.createGitWorktree with a real remote branch", () => {
 		expect(staleSha).not.toBe(remoteSha);
 		await create();
 		expect(git(wsPath(), "rev-parse HEAD")).toBe(remoteSha);
-		expect(git(repo, `rev-parse ${BRANCH}`)).toBe(remoteSha);
+		// The shared repository is never touched any more.
+		expect(git(repo, `rev-parse ${BRANCH}`)).toBe(staleSha);
 	});
 
-	it("diverged local branch keeps its commits and warns", async () => {
+	it("a diverged local branch in the source repo is left alone and not carried into the clone", async () => {
 		pushRemoteBranch(1);
+		const remoteSha = git(other, "rev-parse HEAD");
 		git(repo, `branch ${BRANCH} origin/main`);
 		git(repo, `checkout -q ${BRANCH}`);
 		commit(repo, "local-only.txt");
 		const localSha = git(repo, "rev-parse HEAD");
 		git(repo, "checkout -q main");
 		await create();
-		expect(git(wsPath(), "rev-parse HEAD")).toBe(localSha);
-		expect(existsSync(join(wsPath(), "local-only.txt"))).toBe(true);
-		expect(logger.warn).toHaveBeenCalledWith(
-			expect.stringContaining("diverged"),
-		);
+		expect(git(wsPath(), "rev-parse HEAD")).toBe(remoteSha);
+		expect(existsSync(join(wsPath(), "local-only.txt"))).toBe(false);
+		expect(git(repo, `rev-parse ${BRANCH}`)).toBe(localSha);
 	});
 
 	it("a remote branch deleted after merge is not treated as existing", async () => {

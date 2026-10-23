@@ -1,4 +1,5 @@
 import {
+	lstatSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -64,6 +65,7 @@ describe("GitEnv config pins", () => {
 				["credential.helper", ""],
 				["credential.https://github.com.helper", ""],
 				["credential.https://github.com.helper", "/usr/local/libexec/cred"],
+				["credential.https://github.com.useHttpPath", "true"],
 				["core.sshCommand", "/bin/false"],
 				["core.gitProxy", ""],
 				["http.proxy", ""],
@@ -197,9 +199,13 @@ describe("GitEnv session scope and admin names", () => {
 		).toThrow(/real directory/);
 	});
 
-	it("GitService records the admin name at worktree-add time", async () => {
+	it("GitService makes a standalone clone, not a linked worktree", async () => {
 		const service = new GitService(
-			{ cyrusHome: join(fx.root, "home"), gitAllowFileProtocol: true },
+			{
+				cyrusHome: join(fx.root, "home"),
+				gitAllowFileProtocol: true,
+				cloneMinFreeBytes: 0,
+			},
 			silentLogger,
 		);
 		const ws2 = await service.createGitWorktree(
@@ -220,7 +226,9 @@ describe("GitEnv session scope and admin names", () => {
 			],
 		);
 		expect(ws2.isGitWorktree).toBe(true);
-		expect(ws2.gitDirNames).toEqual({ "repo-1": "ENG-2" });
+		expect(ws2.gitDirNames).toBeUndefined();
+		expect(lstatSync(join(ws2.path, ".git")).isDirectory()).toBe(true);
+		expect(fx.gitEnv.listAdminDirs(fx.repo)).toEqual(["ENG-1"]);
 	});
 });
 
@@ -229,7 +237,7 @@ describe("recorded branch name", () => {
 		const fx = makeSessionFixture();
 		try {
 			const service = new GitService(
-				{ cyrusHome: join(fx.root, "home") },
+				{ cyrusHome: join(fx.root, "home"), cloneMinFreeBytes: 0 },
 				silentLogger,
 			);
 			const repo = {
@@ -379,13 +387,17 @@ describe("remote URL trust (insteadOf post-check)", () => {
 		expect(warn).toHaveBeenCalledWith(
 			expect.stringContaining("skipping network git"),
 		);
-		// Offline fallback: no remote-tracking refs were fetched.
+		// The clone is offline: nothing was fetched from the evil host, and the
+		// shared repository is untouched.
 		expect(git(fx.repo, "for-each-ref", "refs/remotes").trim()).toBe("");
 	});
 
 	it("rejects a remote URL that looks like an option", () => {
 		git(fx.repo, "config", "remote.origin.url", "--upload-pack=evil");
-		const service = new GitService({ cyrusHome: join(fx.root, "home") });
+		const service = new GitService({
+			cyrusHome: join(fx.root, "home"),
+			cloneMinFreeBytes: 0,
+		});
 		return expect(
 			service.branchExists("nonexistent-branch", fx.repo),
 		).resolves.toBe(false);

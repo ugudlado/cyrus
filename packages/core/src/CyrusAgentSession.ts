@@ -65,6 +65,13 @@ export interface Workspace {
 	 * name. Parent-side `gh` calls use it.
 	 */
 	branchNames?: Record<string, string>;
+	/**
+	 * Repository ids whose clone failed: their directory is a plain folder with
+	 * no git, and they get no token directory in the sandbox.
+	 */
+	cloneFailed?: string[];
+	/** Short, secret-free reason per failed repository id (shown to users). */
+	cloneFailures?: Record<string, string>;
 }
 
 /**

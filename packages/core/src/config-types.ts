@@ -36,6 +36,7 @@ export {
 	UserAccessControlConfigSchema,
 	type UserIdentifier,
 	UserIdentifierSchema,
+	validateAllowedRunners,
 } from "./config-schemas.js";
 
 export { TRUSTED_DOMAINS } from "./trusted-domains.js";

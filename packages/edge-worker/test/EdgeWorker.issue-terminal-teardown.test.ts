@@ -31,7 +31,7 @@ const makeWorker = (fetchIssue: ReturnType<typeof vi.fn> | undefined) => {
 		},
 		sessionRepositories: new Map(),
 		repositories: new Map(),
-		gitService: { deleteWorktree: vi.fn() },
+		gitService: { deleteWorkspace: vi.fn() },
 	};
 	return self;
 };
@@ -52,7 +52,7 @@ describe("EdgeWorker.handleIssueStateChangeMessage state verification", () => {
 	])("tears down when state is %s", async (t) => {
 		const self = makeWorker(issueWithState(t));
 		await run(self, makeMessage());
-		expect(self.gitService.deleteWorktree).toHaveBeenCalledWith("TEST-1", {
+		expect(self.gitService.deleteWorkspace).toHaveBeenCalledWith("TEST-1", {
 			repositories: [],
 		});
 		expect(self.agentSessionManager.removeSession).toHaveBeenCalledWith("s1");
@@ -65,7 +65,7 @@ describe("EdgeWorker.handleIssueStateChangeMessage state verification", () => {
 	])("does nothing when state is %s", async (t) => {
 		const self = makeWorker(issueWithState(t));
 		await run(self, makeMessage());
-		expect(self.gitService.deleteWorktree).not.toHaveBeenCalled();
+		expect(self.gitService.deleteWorkspace).not.toHaveBeenCalled();
 		expect(self.agentSessionManager.requestSessionStop).not.toHaveBeenCalled();
 		expect(self.agentSessionManager.removeSession).not.toHaveBeenCalled();
 	});
@@ -73,14 +73,14 @@ describe("EdgeWorker.handleIssueStateChangeMessage state verification", () => {
 	it("fails safe (no teardown, logged) when the fetch fails", async () => {
 		const self = makeWorker(vi.fn().mockRejectedValue(new Error("boom")));
 		await run(self, makeMessage());
-		expect(self.gitService.deleteWorktree).not.toHaveBeenCalled();
+		expect(self.gitService.deleteWorkspace).not.toHaveBeenCalled();
 		expect(self.logger.warn).toHaveBeenCalled();
 	});
 
 	it("fails safe when no issue tracker exists for the workspace", async () => {
 		const self = makeWorker(undefined);
 		await run(self, makeMessage());
-		expect(self.gitService.deleteWorktree).not.toHaveBeenCalled();
+		expect(self.gitService.deleteWorkspace).not.toHaveBeenCalled();
 	});
 
 	it("tears down a deleted issue without fetching its state", async () => {
@@ -88,7 +88,7 @@ describe("EdgeWorker.handleIssueStateChangeMessage state verification", () => {
 		const self = makeWorker(fetchIssue);
 		await run(self, makeMessage(true));
 		expect(fetchIssue).not.toHaveBeenCalled();
-		expect(self.gitService.deleteWorktree).toHaveBeenCalled();
+		expect(self.gitService.deleteWorkspace).toHaveBeenCalled();
 	});
 });
 
@@ -116,7 +116,7 @@ describe("handleIssueStateChangeMessage with the real CLI issue tracker", () => 
 		const { tracker, issue, messages, self } = await setup();
 		await tracker.terminateIssue(issue.id, "completed");
 		await run(self, messages[0]);
-		expect(self.gitService.deleteWorktree).toHaveBeenCalledWith(
+		expect(self.gitService.deleteWorkspace).toHaveBeenCalledWith(
 			issue.identifier,
 			{ repositories: [] },
 		);
@@ -126,7 +126,7 @@ describe("handleIssueStateChangeMessage with the real CLI issue tracker", () => 
 		const { tracker, issue, messages, self } = await setup();
 		await tracker.terminateIssue(issue.id, "canceled");
 		await run(self, messages[0]);
-		expect(self.gitService.deleteWorktree).toHaveBeenCalled();
+		expect(self.gitService.deleteWorkspace).toHaveBeenCalled();
 	});
 
 	it("tears down after terminateIssue('deleted')", async () => {
@@ -134,7 +134,7 @@ describe("handleIssueStateChangeMessage with the real CLI issue tracker", () => 
 		await tracker.terminateIssue(issue.id, "deleted");
 		expect(messages[0].platformData.isDeleted).toBe(true);
 		await run(self, messages[0]);
-		expect(self.gitService.deleteWorktree).toHaveBeenCalled();
+		expect(self.gitService.deleteWorkspace).toHaveBeenCalled();
 	});
 
 	it("does not tear down for a non-terminal CLI issue", async () => {
@@ -145,7 +145,7 @@ describe("handleIssueStateChangeMessage with the real CLI issue tracker", () => 
 			workItemId: issue.id,
 			workItemIdentifier: issue.identifier,
 		});
-		expect(self.gitService.deleteWorktree).not.toHaveBeenCalled();
+		expect(self.gitService.deleteWorkspace).not.toHaveBeenCalled();
 		expect(messages).toHaveLength(0);
 	});
 });

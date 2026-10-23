@@ -1,9 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { execSync } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, join, sep } from "node:path";
 import { LinearClient } from "@linear/sdk";
 import type {
 	McpServerConfig,
@@ -54,7 +54,6 @@ import type {
 	Webhook,
 	WebhookAgentSession,
 	WebhookIssue,
-	Workspace,
 } from "cyrus-core";
 import {
 	CLIIssueTrackerService,
@@ -62,6 +61,7 @@ import {
 	createLogger,
 	DEFAULT_PROXY_URL,
 	GitHubTokenStore,
+	getDefaultWorktreesDir,
 	isAgentSessionCreatedWebhook,
 	isAgentSessionPromptedWebhook,
 	isContentUpdateMessage,
@@ -82,6 +82,7 @@ import {
 	requireLinearWorkspaceId,
 	resolvePath,
 	TenantRegistry,
+	validateAllowedRunners,
 	validateTenants,
 	WebhookIpValidator,
 } from "cyrus-core";
@@ -168,7 +169,7 @@ import { DefaultSkillsDeployer } from "./DefaultSkillsDeployer.js";
 import { EgressProxy } from "./EgressProxy.js";
 import { GitService } from "./GitService.js";
 import { GlobalSessionRegistry } from "./GlobalSessionRegistry.js";
-import type { GitSessionTarget } from "./gitEnv.js";
+import { type GitSessionTarget, parseGithubSlug } from "./gitEnv.js";
 import { McpConfigService } from "./McpConfigService.js";
 import { PromptBuilder } from "./PromptBuilder.js";
 import type {
@@ -224,10 +225,22 @@ type CyrusToolsMcpContext = {
  *   managing Claude Code processes, and
  *   processes results through to Linear Agent Activity Sessions
  */
+/**
+ * Thrown when a single-repository session can not get its git clone: the
+ * session does not start (an error activity has been posted).
+ */
+export class CloneFailedError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "CloneFailedError";
+	}
+}
+
 export class EdgeWorker extends EventEmitter {
 	private config: EdgeWorkerConfig;
 	/** Built once from the startup config; tenant changes need a restart. */
 	private tenantRegistry: TenantRegistry;
+	private workspaceSweepTimer?: ReturnType<typeof setInterval>;
 	private repositories: Map<string, RepositoryConfig> = new Map(); // repository 'id' (internal, stored in config.json) mapped to the full repo config
 	private agentSessionManager: AgentSessionManager; // Single instance managing all agent sessions across repositories
 	private activitySinks: Map<string, IActivitySink> = new Map(); // Maps Linear workspace ID to activity sink (one per workspace, mirrors issueTrackers)
@@ -366,12 +379,19 @@ export class EdgeWorker extends EventEmitter {
 				? resolvePath(config.gitCredentialHelper)
 				: undefined,
 			ghBinary: config.ghBinary ? resolvePath(config.ghBinary) : undefined,
+			githubTokenDir: config.githubTokenDir
+				? resolvePath(config.githubTokenDir)
+				: undefined,
 		};
 	}
 
 	constructor(config: EdgeWorkerConfig) {
 		super();
 		this.config = EdgeWorker.normalizeConfigPaths(config);
+		const runnerProblems = validateAllowedRunners(config);
+		if (runnerProblems.length > 0) {
+			throw new Error(`Invalid runner config: ${runnerProblems.join("; ")}`);
+		}
 		const tenantProblems = validateTenants(config);
 		if (tenantProblems.length > 0) {
 			throw new Error(`Invalid tenants config: ${tenantProblems.join("; ")}`);
@@ -658,7 +678,10 @@ export class EdgeWorker extends EventEmitter {
 			this.cyrusHome,
 			this.config.linearWorkspaces || {},
 		);
-		this.runnerSelectionService = new RunnerSelectionService(this.config);
+		this.runnerSelectionService = new RunnerSelectionService(
+			this.config,
+			this.logger,
+		);
 		this.runnerSlots = new SessionSemaphore(
 			this.config.maxConcurrentSessions ?? Number.POSITIVE_INFINITY,
 			(message) => this.logger.info(message),
@@ -727,6 +750,11 @@ export class EdgeWorker extends EventEmitter {
 		// Components will be initialized and registered in start() method before server starts
 	}
 
+	/** The worker's GitService (configured with the git pins from config). */
+	getGitService(): GitService {
+		return this.gitService;
+	}
+
 	/**
 	 * Start the edge worker
 	 */
@@ -758,6 +786,10 @@ export class EdgeWorker extends EventEmitter {
 
 		// Load persisted state for each repository
 		await this.loadPersistedState();
+
+		// Clones replace linked worktrees: set aside any leftover worktree
+		// directories, then sweep stale PR clones now and every 6 hours.
+		this.startWorkspaceMaintenance();
 
 		// Pre-warm the 30 most recent Claude sessions in the background
 		// so their first query after restart has near-zero cold-start latency.
@@ -1233,8 +1265,9 @@ export class EdgeWorker extends EventEmitter {
 			chatRepositoryProvider,
 			runnerConfigBuilder: this.runnerConfigBuilder,
 			createRunner: (config, chatRunnerType) => {
-				const runnerType =
-					chatRunnerType ?? this.runnerSelectionService.getDefaultRunner();
+				const runnerType = this.runnerSelectionService.coerceRunner(
+					chatRunnerType ?? this.runnerSelectionService.getDefaultRunner(),
+				);
 				return this.createRunnerForType(runnerType, {
 					...config,
 					model: this.getDefaultModelForRunner(runnerType),
@@ -1948,7 +1981,8 @@ export class EdgeWorker extends EventEmitter {
 			const allowedTools =
 				this.toolPermissionResolver.buildGithubAllowedTools(repository);
 			const disallowedTools = this.buildDisallowedTools(repository);
-			const allowedDirectories: string[] = [repository.repositoryPath];
+			// No grant on the shared repository: the session works in its own clone.
+			const allowedDirectories: string[] = [];
 
 			// Create agent runner using the standard config builder
 			const { config: runnerConfig, runnerType } =
@@ -2259,6 +2293,13 @@ Your base branch \`${branchName}\` has received ${commitCount} new commit(s). Co
 	 * Create a git worktree for a GitHub PR branch.
 	 * If the worktree already exists for this branch, reuse it.
 	 */
+	/** Directory-safe form of a repository name for workspace directory names. */
+	private static workspaceSlug(name: string): string {
+		return (
+			name.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "repo"
+		);
+	}
+
 	private async createGitHubWorkspace(
 		repository: RepositoryConfig,
 		branchRef: string,
@@ -2269,7 +2310,8 @@ Your base branch \`${branchName}\` has received ${commitCount} new commit(s). Co
 			// Create a synthetic issue-like object for the git service
 			const syntheticIssue = {
 				id: `github-pr-${prNumber}`,
-				identifier: `PR-${prNumber}`,
+				// Repo-qualified: PR 5 of two repositories must not share a directory.
+				identifier: `${EdgeWorker.workspaceSlug(repository.name)}-PR-${prNumber}`,
 				title: `PR #${prNumber}`,
 				description: null,
 				url: "",
@@ -2300,9 +2342,17 @@ Your base branch \`${branchName}\` has received ${commitCount} new commit(s). Co
 					}),
 			} as unknown as Issue;
 
-			return await this.gitService.createGitWorktree(syntheticIssue, [
-				repository,
-			]);
+			const workspace = await this.gitService.createGitWorktree(
+				syntheticIssue,
+				[repository],
+			);
+			if (workspace.cloneFailed?.length) {
+				this.logger.error(
+					`Could not clone ${repository.name} for PR #${prNumber} (${workspace.cloneFailures?.[repository.id] ?? "git clone failed"}); not starting a session`,
+				);
+				return null;
+			}
+			return workspace;
 		} catch (error) {
 			this.logger.error(
 				`Failed to create GitHub workspace for PR #${prNumber}`,
@@ -2690,7 +2740,8 @@ ${taskSection}`;
 			const allowedTools =
 				this.toolPermissionResolver.buildGithubAllowedTools(repository);
 			const disallowedTools = this.buildDisallowedTools(repository);
-			const allowedDirectories: string[] = [repository.repositoryPath];
+			// No grant on the shared repository: the session works in its own clone.
+			const allowedDirectories: string[] = [];
 
 			// Create agent runner using the standard config builder
 			const { config: runnerConfig, runnerType } =
@@ -2791,7 +2842,7 @@ ${taskSection}`;
 			// Create a synthetic issue-like object for the git service
 			const syntheticIssue = {
 				id: `gitlab-mr-${mrIid}`,
-				identifier: `MR-${mrIid}`,
+				identifier: `${EdgeWorker.workspaceSlug(repository.name)}-MR-${mrIid}`,
 				title: `MR !${mrIid}`,
 				description: null,
 				url: "",
@@ -2822,9 +2873,17 @@ ${taskSection}`;
 					}),
 			} as unknown as Issue;
 
-			return await this.gitService.createGitWorktree(syntheticIssue, [
-				repository,
-			]);
+			const workspace = await this.gitService.createGitWorktree(
+				syntheticIssue,
+				[repository],
+			);
+			if (workspace.cloneFailed?.length) {
+				this.logger.error(
+					`Could not clone ${repository.name} for MR !${mrIid} (${workspace.cloneFailures?.[repository.id] ?? "git clone failed"}); not starting a session`,
+				);
+				return null;
+			}
+			return workspace;
 		} catch (error) {
 			this.logger.error(
 				`Failed to create GitLab workspace for MR !${mrIid}`,
@@ -3098,6 +3157,10 @@ ${taskSection}`;
 	 * Stop the edge worker
 	 */
 	async stop(): Promise<void> {
+		if (this.workspaceSweepTimer) {
+			clearInterval(this.workspaceSweepTimer);
+			this.workspaceSweepTimer = undefined;
+		}
 		// Stop config file watcher
 		await this.configManager.stop();
 
@@ -3961,7 +4024,7 @@ ${taskSection}`;
 		}
 
 		// Delete worktrees for this issue, keyed by the Linear issue identifier.
-		await this.gitService.deleteWorktree(message.workItemIdentifier, {
+		await this.gitService.deleteWorkspace(message.workItemIdentifier, {
 			repositories: teardownRepositories,
 		});
 
@@ -4698,6 +4761,15 @@ ${taskSection}`;
 			agentSessionManager.setActivitySink(sessionId, activitySink);
 		}
 
+		// A failed clone is never silent: say so in the session. A single-repo
+		// session does not start; a multi-repo one continues without that repo.
+		await this.reportCloneFailure(
+			sessionId,
+			linearWorkspaceId,
+			workspace,
+			repositories,
+		);
+
 		// Post combined routing + base branch activity
 		{
 			const repoLines = repositories.map((repo) => {
@@ -4753,14 +4825,9 @@ ${taskSection}`;
 
 		// Build allowed directories list - always include attachments directory
 		// Include repository paths from all repositories
-		const allRepoPaths = repositories.map((repo) => repo.repositoryPath);
-		const allowedDirectories: string[] = [
-			...new Set([
-				attachmentsDir,
-				...allRepoPaths,
-				...this.getValidatedGitMetadataDirectories(workspace, repositories[0]),
-			]),
-		];
+		// The shared repositories are NOT granted: each session works in its own
+		// clone (A31 stage B), so nothing under ~/repos is reachable.
+		const allowedDirectories: string[] = [attachmentsDir];
 
 		this.logger.debug(
 			`Configured allowed directories for ${fullIssue.identifier}:`,
@@ -6445,6 +6512,215 @@ ${taskSection}`;
 	 * single responsibility (SRP: this method's only job is "where do
 	 * sessions live?", separate from "how do we match one by cwd?").
 	 */
+	/** Directories that hold session workspaces (default + per-repo bases). */
+	private workspaceBaseDirs(): string[] {
+		return [
+			...new Set([
+				getDefaultWorktreesDir(this.cyrusHome),
+				...Array.from(this.repositories.values()).map(
+					(repo) => repo.workspaceBaseDir,
+				),
+			]),
+		];
+	}
+
+	/**
+	 * True when a session parked on a blocker owns `path`. A parked session has
+	 * no workspace record yet (it is created when it wakes), so it is matched by
+	 * its issue identifier: the workspace directory is named after it.
+	 */
+	private isWorkspaceParked(path: string, _prefix: string): boolean {
+		const name = basename(path).replace(/\.(quarantine|worktree-old)-\d+$/, "");
+		for (const parked of this.parkedSessions.values()) {
+			const identifier = parked.agentSession.issue?.identifier;
+			if (identifier && identifier === name) return true;
+		}
+		return false;
+	}
+
+	/** True when a live or parked session works in (or under) `path`. */
+	private isWorkspaceInUse(path: string): boolean {
+		const prefix = path.endsWith(sep) ? path : path + sep;
+		const live = this.getAllKnownSessions().some((session) => {
+			const used = [
+				session.workspace?.path,
+				...Object.values(session.workspace?.repoPaths ?? {}),
+			].filter((p): p is string => typeof p === "string" && p.length > 0);
+			return used.some(
+				(u) => u === path || u.startsWith(prefix) || path.startsWith(u + sep),
+			);
+		});
+		return live || this.isWorkspaceParked(path, prefix);
+	}
+
+	/**
+	 * Make sure the session's workspace is a usable clone before its runner
+	 * starts. A restored session whose workspace directory is missing or still a
+	 * legacy linked worktree, or whose clone failed earlier, gets a fresh clone
+	 * (healthy clones are reused untouched); `session.workspace` is refreshed in
+	 * place so the runner cwd and git targets follow. Throws
+	 * {@link CloneFailedError} for a single-repo session that still can not be
+	 * cloned (after posting the error activity).
+	 */
+	private async ensureSessionClone(
+		session: CyrusAgentSession,
+		repository: RepositoryConfig,
+		linearWorkspaceId?: string,
+	): Promise<void> {
+		const ws = session.workspace;
+		if (!ws || (!ws.isGitWorktree && !ws.cloneFailed?.length)) return;
+		const paths =
+			ws.repoPaths && Object.keys(ws.repoPaths).length > 0
+				? Object.values(ws.repoPaths)
+				: [ws.path];
+		const isStale = (p: string): boolean => {
+			try {
+				const st = lstatSync(join(p, ".git"));
+				if (st.isFile()) return true; // legacy linked worktree
+				// A clone that no longer passes the shape check is replaced too
+				// (createGitWorktree moves it aside untouched).
+				this.gitService.gitEnv.assertCloneShape(p);
+				return false;
+			} catch {
+				return true; // missing workspace or .git, or failed shape check
+			}
+		};
+		if (!(ws.cloneFailed?.length || paths.some(isStale))) return;
+
+		const ids = session.repositories?.map((r) => r.repositoryId) ?? [];
+		const repos = ids
+			.map((id) => this.repositories.get(id))
+			.filter((r): r is RepositoryConfig => r !== undefined);
+		const useRepos = repos.length > 0 ? repos : [repository];
+		const branchName =
+			Object.values(ws.branchNames ?? {})[0] ??
+			session.repositories?.[0]?.branchName ??
+			session.issue?.branchName;
+		// Only identifier/title/branch matter here; the base branch is the one
+		// already resolved for this session (so the issue is never re-fetched).
+		const issue = {
+			id: session.issueId ?? session.issue?.id ?? session.id,
+			identifier: basename(ws.path),
+			title: session.issue?.title ?? "",
+			description: null,
+			branchName,
+			priority: 0,
+			state: Promise.resolve(undefined),
+			parent: Promise.resolve(undefined),
+			labels: () => Promise.resolve({ nodes: [] }),
+			children: () => Promise.resolve({ nodes: [] }),
+			inverseRelations: () => Promise.resolve({ nodes: [] }),
+		} as unknown as Issue;
+		const baseBranchOverrides = new Map<string, string>();
+		for (const r of useRepos) {
+			const ctx = session.repositories?.find((c) => c.repositoryId === r.id);
+			baseBranchOverrides.set(r.id, ctx?.baseBranchName ?? r.baseBranch);
+		}
+
+		this.logger.info(
+			`Workspace for session ${session.id} is missing or not a clone; creating a fresh clone`,
+		);
+		const created = this.config.handlers?.createWorkspace
+			? await this.config.handlers.createWorkspace(issue, useRepos, {
+					baseBranchOverrides,
+				})
+			: await this.gitService.createGitWorktree(issue, useRepos, {
+					baseBranchOverrides,
+					globalSetupScript: this.config.global_setup_script,
+				});
+
+		ws.path = created.path;
+		ws.isGitWorktree = created.isGitWorktree;
+		ws.repoPaths = created.repoPaths;
+		ws.branchNames = created.branchNames;
+		ws.cloneFailed = created.cloneFailed;
+		ws.cloneFailures = created.cloneFailures;
+		ws.gitDirNames = undefined;
+		await this.savePersistedState();
+
+		await this.reportCloneFailure(
+			session.id,
+			linearWorkspaceId ?? requireLinearWorkspaceId(repository),
+			created,
+			useRepos,
+		);
+	}
+
+	/**
+	 * Say in the session that a clone failed (repository names and a short
+	 * reason only). A single-repo session then throws {@link CloneFailedError}
+	 * so its runner never starts; a multi-repo session carries on.
+	 */
+	private async reportCloneFailure(
+		sessionId: string,
+		linearWorkspaceId: string,
+		workspace: {
+			cloneFailed?: string[];
+			cloneFailures?: Record<string, string>;
+		},
+		repositories: RepositoryConfig[],
+	): Promise<void> {
+		const failed = workspace.cloneFailed ?? [];
+		if (failed.length === 0) return;
+		const describe = (id: string): string => {
+			const name = this.repositories.get(id)?.name ?? id;
+			return `${name} (${workspace.cloneFailures?.[id] ?? "git clone failed"})`;
+		};
+		const single = repositories.length <= 1;
+		const body = single
+			? `Could not create a git clone for ${failed.map(describe).join(", ")}. The session was not started; it will retry on the next message.`
+			: `Could not create a git clone for ${failed.map(describe).join(", ")}. Continuing without git for ${failed.length === 1 ? "that repository" : "those repositories"}.`;
+		this.logger.error(`Clone failed for session ${sessionId}: ${body}`);
+		await this.activityPoster.postErrorActivity(
+			sessionId,
+			linearWorkspaceId,
+			body,
+		);
+		if (single) {
+			throw new CloneFailedError(body);
+		}
+	}
+
+	private startWorkspaceMaintenance(): void {
+		try {
+			const result = this.gitService.migrateLegacyWorktrees({
+				baseDirs: this.workspaceBaseDirs(),
+				repositories: Array.from(this.repositories.values()),
+				// A restored session keeps its legacy worktree until its next
+				// prompt replaces it (ensureSessionClone), like the sweep.
+				isInUse: (path) => this.isWorkspaceInUse(path),
+				discard: process.env.CYRUS_DISCARD_OLD_WORKTREES === "1",
+			});
+			if (result.moved.length + result.dirty.length + result.invalid.length) {
+				this.logger.info(
+					`Legacy worktree cutover: set aside ${result.moved.length} (${result.invalid.length} with unverifiable pointers, moved unexamined); ${result.dirty.length} with uncommitted changes left in place (set CYRUS_DISCARD_OLD_WORKTREES=1 to set them aside too): ${result.dirty.join(", ")}`,
+				);
+			}
+		} catch (error) {
+			this.logger.warn(
+				"Legacy worktree cutover failed (non-fatal):",
+				error instanceof Error ? error : new Error(String(error)),
+			);
+		}
+		const sweep = (): void => {
+			try {
+				this.gitService.sweepWorkspaces({
+					baseDirs: this.workspaceBaseDirs(),
+					isInUse: (path) => this.isWorkspaceInUse(path),
+					maxAgeDays: this.config.prCloneMaxAgeDays ?? 14,
+				});
+			} catch (error) {
+				this.logger.warn(
+					"Workspace sweep failed (non-fatal):",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+			}
+		};
+		sweep();
+		this.workspaceSweepTimer = setInterval(sweep, 6 * 60 * 60 * 1000);
+		this.workspaceSweepTimer.unref?.();
+	}
+
 	private getAllKnownSessions(): CyrusAgentSession[] {
 		return [
 			...this.agentSessionManager.getAllSessions(),
@@ -6850,13 +7126,24 @@ ${taskSection}`;
 			return this.buildStreamingPrompt(input);
 		}
 
-		// If new session, build full prompt with all components
-		if (input.isNewSession) {
-			return this.buildNewSessionPrompt(input);
-		}
+		const assembly = input.isNewSession
+			? // New session: full prompt with all components
+				await this.buildNewSessionPrompt(input)
+			: // Existing session continuation - just user comment + attachments
+				this.buildContinuationPrompt(input);
 
-		// Existing session continuation - just user comment + attachments
-		return this.buildContinuationPrompt(input);
+		// Multi-repo sessions that lost a clone say so (names only).
+		const failed = input.session?.workspace?.cloneFailed ?? [];
+		if (failed.length > 0) {
+			const names = failed
+				.map((id) => this.repositories.get(id)?.name ?? id)
+				.join(", ");
+			return {
+				...assembly,
+				userPrompt: `${assembly.userPrompt}\n\n<clone_failures>\nGit is not available for these repositories (their clone failed; the directories are empty plain folders): ${names}\n</clone_failures>`,
+			};
+		}
+		return assembly;
 	}
 
 	/**
@@ -7170,41 +7457,36 @@ ${input.userComment}
 	}
 
 	/**
-	 * The validated common `.git` directory (one per repository in the
-	 * workspace) for this workspace's worktree(s). Used both as a sandbox write
-	 * grant and for the tool-permission layer's `Read` grants; each value is
-	 * anchored on the configured repository path (see
-	 * GitService.getWritableGitMetadataDirectories). The worktree's own gitdir
-	 * lives inside the common dir, so it is covered.
+	 * Token directories the session's sandbox may READ: exactly
+	 * `<githubTokenDir>/<owner>/<name>` (lowercase, GitHub is case-insensitive)
+	 * for each of the session's repositories whose clone succeeded. The repo
+	 * name comes from the trusted config, never from the workspace. Empty when
+	 * the feature is off (`githubTokenDir` unset).
 	 */
-	private getValidatedGitMetadataDirectories(
-		workspace: Workspace,
-		fallbackRepository?: RepositoryConfig,
+	private buildGhTokenDirs(
+		session: CyrusAgentSession,
+		fallbackRepository: RepositoryConfig,
 	): string[] {
-		const targets: Array<{ workingDirectory: string; repositoryPath: string }> =
-			[];
-		const repoPaths = workspace.repoPaths;
-		if (repoPaths && Object.keys(repoPaths).length > 0) {
-			for (const [repoId, workingDirectory] of Object.entries(repoPaths)) {
-				const repo = this.repositories.get(repoId);
-				if (repo) {
-					targets.push({
-						workingDirectory,
-						repositoryPath: repo.repositoryPath,
-					});
-				} else {
-					this.logger.debug(
-						`No configured repository ${repoId} for workspace ${workspace.path}; granting no git metadata dir for ${workingDirectory}`,
-					);
-				}
-			}
-		} else if (fallbackRepository) {
-			targets.push({
-				workingDirectory: workspace.path,
-				repositoryPath: fallbackRepository.repositoryPath,
-			});
+		const root = this.config.githubTokenDir;
+		if (!root) return [];
+		const workspace = session.workspace;
+		if (!workspace.isGitWorktree && !workspace.repoPaths) return [];
+		const failed = new Set(workspace.cloneFailed ?? []);
+		const ids =
+			workspace.repoPaths && Object.keys(workspace.repoPaths).length > 0
+				? Object.keys(workspace.repoPaths)
+				: [fallbackRepository.id];
+		const dirs: string[] = [];
+		for (const id of ids) {
+			if (failed.has(id)) continue;
+			const repo = this.repositories.get(id) ?? fallbackRepository;
+			if (repo.id !== id || !repo.githubUrl) continue;
+			const slug = parseGithubSlug(repo.githubUrl);
+			if (!slug) continue;
+			const [owner, name] = slug.toLowerCase().split("/");
+			dirs.push(join(root, owner as string, name as string));
 		}
-		return this.gitService.getWritableGitMetadataDirectories(targets);
+		return [...new Set(dirs)];
 	}
 
 	/**
@@ -7285,6 +7567,11 @@ ${input.userComment}
 			issueIdentifier: session.issueContext?.issueIdentifier,
 		});
 
+		// A restored session whose workspace is gone or still a legacy worktree
+		// (or whose clone failed earlier) gets a fresh clone before the runner
+		// starts; session.workspace is refreshed in place.
+		await this.ensureSessionClone(session, repository, linearWorkspaceId);
+
 		// Resolve plugins once so we can also derive the per-session scoped
 		// skill allow-list from the same filesystem snapshot.
 		const plugins = await this.skillsPluginResolver.resolve();
@@ -7305,10 +7592,8 @@ ${input.userComment}
 			systemPrompt,
 			allowedTools,
 			allowedDirectories,
-			gitMetadataDirectories: this.getValidatedGitMetadataDirectories(
-				session.workspace,
-				repository,
-			),
+			ghTokenDirs: this.buildGhTokenDirs(session, repository),
+			githubTokenRoot: this.config.githubTokenDir,
 			gitTargets: this.buildGitSessionTargets(session, repository),
 			githubAppTokens: this.gitHubAppTokenProvider ?? undefined,
 			disallowedTools,
@@ -8096,15 +8381,7 @@ ${input.userComment}
 		await mkdir(attachmentsDir, { recursive: true });
 
 		const allowedDirectories = [
-			...new Set([
-				attachmentsDir,
-				repository.repositoryPath,
-				...additionalAllowedDirectories,
-				...this.getValidatedGitMetadataDirectories(
-					session.workspace,
-					repository,
-				),
-			]),
+			...new Set([attachmentsDir, ...additionalAllowedDirectories]),
 		];
 
 		const resumeSessionId = needsNewSession

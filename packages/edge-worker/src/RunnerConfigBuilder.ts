@@ -66,6 +66,8 @@ export interface IChatToolResolver {
  */
 export interface IRunnerSelector {
 	getDefaultRunner(): RunnerType;
+	/** Map a runner that `allowedRunners` forbids to a permitted one (identity otherwise). */
+	coerceRunner?(runnerType: RunnerType): RunnerType;
 	determineRunnerSelection(
 		labels: string[],
 		issueDescription?: string,
@@ -144,14 +146,18 @@ export interface IssueRunnerConfigInput {
 	allowedTools: string[];
 	allowedDirectories: string[];
 	/**
-	 * Validated git metadata directories (the repository's common `.git` and the
-	 * worktree's own gitdir) that the OS sandbox must be able to WRITE so that
-	 * `git add`/`commit` work inside a linked worktree. Kept separate from
-	 * `allowedDirectories` (which feeds the tool-permission layer) so these
-	 * paths get write access without also being added to `allowRead`, where a
-	 * read-only grant would override the write grant.
+	 * Token directories (`<githubTokenDir>/<owner>/<name>`) of exactly this
+	 * session's repositories whose clone succeeded. The OS sandbox may READ
+	 * them (re-opened under `denyRead: ["~/"]`), nothing else under the token
+	 * root. Empty when the feature is off.
 	 */
-	gitMetadataDirectories?: string[];
+	ghTokenDirs?: string[];
+	/**
+	 * Absolute token root; when set, the tool-permission layer also denies the
+	 * Read tool on it (double-slash absolute form) so Claude's own Read tool can
+	 * not open tokens either.
+	 */
+	githubTokenRoot?: string;
 	/**
 	 * One entry per git worktree of the session, from parent-owned data (the
 	 * workspace record and the configured repository). The parent-side hooks
@@ -333,8 +339,13 @@ export class RunnerConfigBuilder {
 		);
 
 		input.logger.debug("Chat session allowed tools:", allowedTools);
-		const runnerType =
+		const requestedRunner =
 			input.runnerType ?? this.runnerSelector.getDefaultRunner();
+		const runnerType =
+			this.runnerSelector.coerceRunner?.(requestedRunner) ?? requestedRunner;
+		// A resume id belongs to the runner that made it.
+		const resumeSessionId =
+			runnerType === requestedRunner ? input.resumeSessionId : undefined;
 
 		// Shared auto-memory across all chat threads on this platform. Lives
 		// under cyrusHome (not the per-thread workspace) so memory built up in
@@ -368,9 +379,7 @@ export class RunnerConfigBuilder {
 			...(mcpConfig ? { mcpConfig } : {}),
 			...(mcpConfigPath ? { mcpConfigPath } : {}),
 			strictMcpConfig: input.strictMcpConfig ?? true,
-			...(input.resumeSessionId
-				? { resumeSessionId: input.resumeSessionId }
-				: {}),
+			...(resumeSessionId ? { resumeSessionId } : {}),
 			...(input.plugins?.length ? { plugins: input.plugins } : {}),
 			...(input.skills !== undefined ? { skills: input.skills } : {}),
 			// OS sandbox (Claude runner only): deny the home directory, then allow
@@ -485,6 +494,19 @@ export class RunnerConfigBuilder {
 				this.runnerSelector.getDefaultFallbackModelForRunner("opencode");
 		}
 
+		// allowedRunners also applies to resumed sessions: a session that ran on a
+		// now-forbidden runner continues on a permitted one, with a fresh session id.
+		let resumeRunnerDropped = false;
+		const permittedRunner =
+			this.runnerSelector.coerceRunner?.(runnerType) ?? runnerType;
+		if (permittedRunner !== runnerType) {
+			runnerType = permittedRunner;
+			modelOverride = this.runnerSelector.getDefaultModelForRunner(runnerType);
+			fallbackModelOverride =
+				this.runnerSelector.getDefaultFallbackModelForRunner(runnerType);
+			resumeRunnerDropped = true;
+		}
+
 		// Log model override if found
 		if (modelOverride) {
 			log.debug(`Model override via selector: ${modelOverride}`);
@@ -536,7 +558,9 @@ export class RunnerConfigBuilder {
 			...(this.untrustedWorktree && { untrustedWorktree: true }),
 			workingDirectory: cwd,
 			allowedTools: input.allowedTools,
-			disallowedTools: input.disallowedTools,
+			disallowedTools: input.githubTokenRoot
+				? [...input.disallowedTools, `Read(/${input.githubTokenRoot}/**)`]
+				: input.disallowedTools,
 			allowedDirectories: input.allowedDirectories,
 			...(additionalDirectories.length > 0 && { additionalDirectories }),
 			workspaceName: input.session.issue?.identifier || input.session.issueId,
@@ -630,7 +654,11 @@ export class RunnerConfigBuilder {
 		if (runnerType === "codex" && input.sandboxSettings) {
 			config.sandboxSettings = {
 				allowWrite: [input.session.workspace.path],
-				allowRead: [input.session.workspace.path, ...input.allowedDirectories],
+				allowRead: [
+					input.session.workspace.path,
+					...input.allowedDirectories,
+					...(input.ghTokenDirs ?? []),
+				],
 			};
 		}
 
@@ -667,7 +695,7 @@ export class RunnerConfigBuilder {
 			}
 		}
 
-		if (input.resumeSessionId) {
+		if (input.resumeSessionId && !resumeRunnerDropped) {
 			config.resumeSessionId = input.resumeSessionId;
 		}
 
@@ -724,9 +752,9 @@ export class RunnerConfigBuilder {
 					// Read access: the worktree ("."), the attachments dir (it lives under
 					// ~/.cyrus, which `denyRead: ["~/"]` would otherwise hide), and
 					// operator-whitelisted writable paths (carved out of the `~/` deny).
-					// Repo paths and git metadata dirs are deliberately NOT listed: a
-					// read-only grant on the common `.git` overrides its write grant and
-					// makes every git write fail with "Read-only file system".
+					// The shared repositories are deliberately NOT listed (the session
+					// works in its own clone). The session's own repositories' token
+					// dirs are re-opened under the `~/` deny, siblings stay hidden.
 					allowRead: [
 						".",
 						join(
@@ -735,14 +763,13 @@ export class RunnerConfigBuilder {
 							"attachments",
 						),
 						...(input.sandboxWritablePaths ?? []),
+						...(input.ghTokenDirs ?? []),
 					],
 					denyRead: ["~/"],
-					// Restrict subprocess writes to the session worktree, its validated
-					// git metadata dirs (so commits work), plus any operator-whitelisted
-					// paths
+					// Restrict subprocess writes to the session clone plus any
+					// operator-whitelisted paths
 					allowWrite: [
 						input.session.workspace.path,
-						...(input.gitMetadataDirectories ?? []),
 						...(input.sandboxWritablePaths ?? []),
 					],
 				},

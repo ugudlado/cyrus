@@ -5,6 +5,9 @@ This changelog documents internal development changes, refactors, tooling update
 ## [Unreleased]
 
 ### Changed
+- `allowedRunners`: `RunnerSelectionService.coerceRunner` clamps selection, default runner, resumed issue sessions (`RunnerConfigBuilder`) and chat sessions; `validateAllowedRunners` checks `defaultRunner`.
+- A31 stage B review fixes: `assertCloneShape` rejects any symlink under `.git`; GitHub is fetched only in repo scope and clones update from the local source (`updateCloneFromSource`, `--depth` only for already-shallow clones); `ensureSessionClone`/`reportCloneFailure` in `EdgeWorker`; the CLI's createWorkspace handler uses the EdgeWorker's GitService (`getGitService`) so the configured git pins apply.
+- A31 stage B: clone-per-session (`GitService.createSingleRepoClone`, `assertCloneShape`/`cloneScope`/`restampCloneConfig` in `gitEnv.ts`), `deleteWorkspace` (alias `deleteWorktree`), `sweepWorkspaces`, `migrateLegacyWorktrees`; gitMetadataDirectories grants and the repo path in allowedDirectories removed; `ghTokenDirs`/`githubTokenRoot` sandbox inputs; `credential.https://github.com.useHttpPath=true` added to the pinned key block (the boat `git_env_content` list must gain it).
 - A33: chat routing context is a per-tenant resolver (`PromptBuilder.generateRoutingContextForTenant`, adapters accept `string | (tenantId?) => string`); `generateRoutingContext` takes an optional candidate list and, with tenants, expands from the tenant's `repositoryIds`; `LiveChatRepositoryProvider` fails closed for untagged events when tenants are enabled; `reposForTenant`/`reposForWorkspace` helpers replace the unscoped repo lists at the Linear transport handler and the fallback re-route.
 
 ### Changed
