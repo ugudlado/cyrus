@@ -27,11 +27,11 @@ function runHelper(args: RunArgs): { decision: any; stderr: string } {
 	tempDirs.push(dir);
 	const cursorDir = join(dir, ".cursor");
 	require("node:fs").mkdirSync(cursorDir, { recursive: true });
-	const helperCopy = join(cursorDir, "cyrus-permission-check.mjs");
+	const helperCopy = join(cursorDir, "kittu-permission-check.mjs");
 	require("node:fs").copyFileSync(HELPER, helperCopy);
 	require("node:fs").chmodSync(helperCopy, 0o755);
 	writeFileSync(
-		join(cursorDir, "cyrus-permissions.json"),
+		join(cursorDir, "kittu-permissions.json"),
 		JSON.stringify({
 			workspace: dir,
 			allow: args.allow ?? [],

@@ -19,9 +19,9 @@ const { StreamableHTTPClientTransport } = await import(
 	fromMcpTools.resolve("@modelcontextprotocol/sdk/client/streamableHttp.js")
 );
 
-import { EdgeWorker } from "cyrus-edge-worker";
+import { EdgeWorker } from "kittu-edge-worker";
 
-const home = await mkdtemp(join(tmpdir(), "cyrus-inbox-f1-"));
+const home = await mkdtemp(join(tmpdir(), "kittu-inbox-f1-"));
 const calls = [];
 const receipt = {
 	messageId: "a2345678-1234-4234-8234-123456789abc",
@@ -41,19 +41,19 @@ const control = Bun.serve({
 	},
 });
 const before = {
-	url: process.env.CYRUS_APP_URL,
-	key: process.env.CYRUS_API_KEY,
-	team: process.env.CYRUS_TEAM_ID,
+	url: process.env.KITTU_APP_URL,
+	key: process.env.KITTU_API_KEY,
+	team: process.env.KITTU_TEAM_ID,
 };
-process.env.CYRUS_APP_URL = `http://127.0.0.1:${control.port}`;
-process.env.CYRUS_API_KEY = "f1-inbox-runtime-key";
-delete process.env.CYRUS_TEAM_ID;
+process.env.KITTU_APP_URL = `http://127.0.0.1:${control.port}`;
+process.env.KITTU_API_KEY = "f1-inbox-runtime-key";
+delete process.env.KITTU_TEAM_ID;
 let worker, client;
 try {
 	worker = new EdgeWorker({
 		platform: "cli",
 		repositories: [],
-		cyrusHome: home,
+		kittuHome: home,
 		serverPort: 0,
 		serverHost: "127.0.0.1",
 	});
@@ -64,7 +64,7 @@ try {
 	worker.mcpConfigService.deps.getIssueTracker = () => ({
 		getClient: () => new LinearClient({ apiKey: "f1-linear-no-network" }),
 	});
-	await worker.registerCyrusToolsMcpEndpoint();
+	await worker.registerKittuToolsMcpEndpoint();
 	const fastify = worker.getSharedApplicationServer().getFastifyInstance();
 	await fastify.listen({ host: "127.0.0.1", port: 0 });
 	const address = fastify.server.address();
@@ -72,11 +72,11 @@ try {
 		"f1-repository",
 		"f1-workspace",
 		"f1-session",
-	)["cyrus-tools"];
+	)["kittu-tools"];
 	client = new Client({ name: "f1-inbox", version: "1" });
 	await client.connect(
 		new StreamableHTTPClientTransport(
-			new URL(`http://127.0.0.1:${address.port}/mcp/cyrus-tools`),
+			new URL(`http://127.0.0.1:${address.port}/mcp/kittu-tools`),
 			{ requestInit: { headers: config.headers } },
 		),
 	);
@@ -100,7 +100,7 @@ try {
 	assert.equal(calls.length, 2);
 	assert.deepEqual(calls[0], calls[1]);
 	const unauth = await fetch(
-		`http://127.0.0.1:${address.port}/mcp/cyrus-tools`,
+		`http://127.0.0.1:${address.port}/mcp/kittu-tools`,
 		{
 			method: "POST",
 			headers: { "content-type": "application/json" },
@@ -122,9 +122,9 @@ try {
 	await worker?.getSharedApplicationServer().getFastifyInstance().close();
 	control.stop(true);
 	for (const [key, value] of Object.entries({
-		CYRUS_APP_URL: before.url,
-		CYRUS_API_KEY: before.key,
-		CYRUS_TEAM_ID: before.team,
+		KITTU_APP_URL: before.url,
+		KITTU_API_KEY: before.key,
+		KITTU_TEAM_ID: before.team,
 	})) {
 		if (value === undefined) delete process.env[key];
 		else process.env[key] = value;

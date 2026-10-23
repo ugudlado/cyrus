@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-	ensureGhWrapperSupportsCyrusToken,
+	ensureGhWrapperSupportsKittuToken,
 	ensureGitHubCredentialHelper,
 	handleGitHubTokens,
 } from "../../src/handlers/githubTokens.js";
@@ -45,26 +45,26 @@ function validPayload() {
 }
 
 describe("handleGitHubTokens", () => {
-	let cyrusHome: string;
+	let kittuHome: string;
 
 	beforeEach(() => {
 		vi.clearAllMocks();
-		cyrusHome = mkdtempSync(join(tmpdir(), "cyrus-github-tokens-"));
+		kittuHome = mkdtempSync(join(tmpdir(), "kittu-github-tokens-"));
 	});
 
 	afterEach(() => {
-		rmSync(cyrusHome, { recursive: true, force: true });
+		rmSync(kittuHome, { recursive: true, force: true });
 	});
 
 	it("persists tokens to github-tokens.json and returns success", async () => {
-		const response = await handleGitHubTokens(validPayload(), cyrusHome);
+		const response = await handleGitHubTokens(validPayload(), kittuHome);
 
 		expect(response.success).toBe(true);
 		if (response.success) {
 			expect(response.data?.tokensCount).toBe(2);
 		}
 
-		const filePath = join(cyrusHome, "github-tokens.json");
+		const filePath = join(kittuHome, "github-tokens.json");
 		expect(existsSync(filePath)).toBe(true);
 		const written = JSON.parse(readFileSync(filePath, "utf-8"));
 		expect(written.version).toBe(1);
@@ -74,13 +74,13 @@ describe("handleGitHubTokens", () => {
 	});
 
 	it("installs the credential helper script and configures git", async () => {
-		const response = await handleGitHubTokens(validPayload(), cyrusHome);
+		const response = await handleGitHubTokens(validPayload(), kittuHome);
 		expect(response.success).toBe(true);
 
 		// The per-invocation gh token resolver is installed alongside.
-		expect(existsSync(join(cyrusHome, "scripts", "gh-cyrus.cjs"))).toBe(true);
+		expect(existsSync(join(kittuHome, "scripts", "gh-kittu.cjs"))).toBe(true);
 
-		const scriptPath = join(cyrusHome, "scripts", "git-credential-cyrus.cjs");
+		const scriptPath = join(kittuHome, "scripts", "git-credential-kittu.cjs");
 		expect(existsSync(scriptPath)).toBe(true);
 		// Executable bit set
 		expect(statSync(scriptPath).mode & 0o111).not.toBe(0);
@@ -125,7 +125,7 @@ describe("handleGitHubTokens", () => {
 
 	it("refreshes gh CLI auth with the first pushed token", async () => {
 		const payload = validPayload();
-		const response = await handleGitHubTokens(payload, cyrusHome);
+		const response = await handleGitHubTokens(payload, kittuHome);
 		expect(response.success).toBe(true);
 		if (response.success) {
 			expect(response.data?.ghAuthConfigured).toBe(true);
@@ -144,7 +144,7 @@ describe("handleGitHubTokens", () => {
 			if (cmd === "gh") throw new Error("gh: command not found");
 			return Buffer.from("");
 		});
-		const response = await handleGitHubTokens(validPayload(), cyrusHome);
+		const response = await handleGitHubTokens(validPayload(), kittuHome);
 		expect(response.success).toBe(true);
 		if (response.success) {
 			expect(response.data?.ghAuthConfigured).toBe(false);
@@ -152,8 +152,8 @@ describe("handleGitHubTokens", () => {
 	});
 
 	it("is idempotent across repeated pushes", async () => {
-		const first = await handleGitHubTokens(validPayload(), cyrusHome);
-		const second = await handleGitHubTokens(validPayload(), cyrusHome);
+		const first = await handleGitHubTokens(validPayload(), kittuHome);
+		const second = await handleGitHubTokens(validPayload(), kittuHome);
 		expect(first.success).toBe(true);
 		expect(second.success).toBe(true);
 		// Each push re-runs the same replace-all + add + gh auth sequence
@@ -162,60 +162,60 @@ describe("handleGitHubTokens", () => {
 	});
 
 	it("rejects a payload without a tokens array", async () => {
-		const response = await handleGitHubTokens({ nope: true }, cyrusHome);
+		const response = await handleGitHubTokens({ nope: true }, kittuHome);
 		expect(response.success).toBe(false);
 		if (!response.success) {
 			expect(response.error).toBe("GitHub tokens payload validation failed");
 		}
-		expect(existsSync(join(cyrusHome, "github-tokens.json"))).toBe(false);
+		expect(existsSync(join(kittuHome, "github-tokens.json"))).toBe(false);
 		expect(mockedExecFileSync).not.toHaveBeenCalled();
 	});
 
 	it("rejects token entries missing required fields", async () => {
 		const response = await handleGitHubTokens(
 			{ tokens: [{ installationId: "111", organization: "OrgOne" }] },
-			cyrusHome,
+			kittuHome,
 		);
 		expect(response.success).toBe(false);
-		expect(existsSync(join(cyrusHome, "github-tokens.json"))).toBe(false);
+		expect(existsSync(join(kittuHome, "github-tokens.json"))).toBe(false);
 	});
 
 	it("returns an error when git configuration fails", async () => {
 		mockedExecFileSync.mockImplementationOnce(() => {
 			throw new Error("git not found");
 		});
-		const response = await handleGitHubTokens(validPayload(), cyrusHome);
+		const response = await handleGitHubTokens(validPayload(), kittuHome);
 		expect(response.success).toBe(false);
 		if (!response.success) {
 			expect(response.error).toBe("Failed to configure git credential helper");
 		}
 		// Tokens were still persisted before git config failed
-		expect(existsSync(join(cyrusHome, "github-tokens.json"))).toBe(true);
+		expect(existsSync(join(kittuHome, "github-tokens.json"))).toBe(true);
 	});
 });
 
 describe("ensureGitHubCredentialHelper", () => {
-	let cyrusHome: string;
+	let kittuHome: string;
 
 	beforeEach(() => {
 		vi.clearAllMocks();
-		cyrusHome = mkdtempSync(join(tmpdir(), "cyrus-cred-helper-"));
+		kittuHome = mkdtempSync(join(tmpdir(), "kittu-cred-helper-"));
 	});
 
 	afterEach(() => {
-		rmSync(cyrusHome, { recursive: true, force: true });
+		rmSync(kittuHome, { recursive: true, force: true });
 	});
 
 	it("returns the installed script path", () => {
-		const scriptPath = ensureGitHubCredentialHelper(cyrusHome);
+		const scriptPath = ensureGitHubCredentialHelper(kittuHome);
 		expect(scriptPath).toBe(
-			join(cyrusHome, "scripts", "git-credential-cyrus.cjs"),
+			join(kittuHome, "scripts", "git-credential-kittu.cjs"),
 		);
 		expect(existsSync(scriptPath)).toBe(true);
 	});
 });
 
-describe("ensureGhWrapperSupportsCyrusToken", () => {
+describe("ensureGhWrapperSupportsKittuToken", () => {
 	const OLD_WRAPPER = `#!/usr/bin/env bash
 exec env -u GITHUB_TOKEN -u GH_TOKEN /usr/bin/gh "$@"
 `;
@@ -223,7 +223,7 @@ exec env -u GITHUB_TOKEN -u GH_TOKEN /usr/bin/gh "$@"
 
 	beforeEach(() => {
 		vi.clearAllMocks();
-		home = mkdtempSync(join(tmpdir(), "cyrus-gh-wrapper-"));
+		home = mkdtempSync(join(tmpdir(), "kittu-gh-wrapper-"));
 	});
 
 	afterEach(() => {
@@ -238,37 +238,37 @@ exec env -u GITHUB_TOKEN -u GH_TOKEN /usr/bin/gh "$@"
 		return wrapperPath;
 	}
 
-	it("rewrites an old strip-everything wrapper to honor CYRUS_GH_TOKEN", () => {
+	it("rewrites an old strip-everything wrapper to honor KITTU_GH_TOKEN", () => {
 		const wrapperPath = writeWrapper(OLD_WRAPPER);
 
-		expect(ensureGhWrapperSupportsCyrusToken(home)).toBe(true);
+		expect(ensureGhWrapperSupportsKittuToken(home)).toBe(true);
 
 		const updated = readFileSync(wrapperPath, "utf8");
-		expect(updated).toContain("CYRUS_GH_TOKEN");
-		expect(updated).toContain('GH_TOKEN="$CYRUS_GH_TOKEN"');
+		expect(updated).toContain("KITTU_GH_TOKEN");
+		expect(updated).toContain('GH_TOKEN="$KITTU_GH_TOKEN"');
 		expect(updated).toContain("-u GITHUB_TOKEN");
 		expect(statSync(wrapperPath).mode & 0o111).not.toBe(0);
 	});
 
-	it("upgrades the interim CYRUS_GH_TOKEN-only wrapper to the resolver", () => {
+	it("upgrades the interim KITTU_GH_TOKEN-only wrapper to the resolver", () => {
 		const interim = `#!/usr/bin/env bash
-if [ -n "\${CYRUS_GH_TOKEN:-}" ]; then
-  exec env -u GITHUB_TOKEN GH_TOKEN="$CYRUS_GH_TOKEN" /usr/bin/gh "$@"
+if [ -n "\${KITTU_GH_TOKEN:-}" ]; then
+  exec env -u GITHUB_TOKEN GH_TOKEN="$KITTU_GH_TOKEN" /usr/bin/gh "$@"
 fi
 exec env -u GITHUB_TOKEN -u GH_TOKEN /usr/bin/gh "$@"
 `;
 		const wrapperPath = writeWrapper(interim);
 
-		expect(ensureGhWrapperSupportsCyrusToken(home)).toBe(true);
-		expect(readFileSync(wrapperPath, "utf8")).toContain("gh-cyrus.cjs");
+		expect(ensureGhWrapperSupportsKittuToken(home)).toBe(true);
+		expect(readFileSync(wrapperPath, "utf8")).toContain("gh-kittu.cjs");
 	});
 
 	it("leaves an already-updated wrapper untouched", () => {
 		const wrapperPath = writeWrapper(OLD_WRAPPER);
-		expect(ensureGhWrapperSupportsCyrusToken(home)).toBe(true);
+		expect(ensureGhWrapperSupportsKittuToken(home)).toBe(true);
 		const afterFirst = readFileSync(wrapperPath, "utf8");
 
-		expect(ensureGhWrapperSupportsCyrusToken(home)).toBe(false);
+		expect(ensureGhWrapperSupportsKittuToken(home)).toBe(false);
 		expect(readFileSync(wrapperPath, "utf8")).toBe(afterFirst);
 	});
 
@@ -276,18 +276,18 @@ exec env -u GITHUB_TOKEN -u GH_TOKEN /usr/bin/gh "$@"
 		const custom = '#!/bin/sh\nexec /opt/custom/gh "$@"\n';
 		const wrapperPath = writeWrapper(custom);
 
-		expect(ensureGhWrapperSupportsCyrusToken(home)).toBe(false);
+		expect(ensureGhWrapperSupportsKittuToken(home)).toBe(false);
 		expect(readFileSync(wrapperPath, "utf8")).toBe(custom);
 	});
 
 	it("is a no-op when no wrapper exists (self-host)", () => {
-		expect(ensureGhWrapperSupportsCyrusToken(home)).toBe(false);
+		expect(ensureGhWrapperSupportsKittuToken(home)).toBe(false);
 	});
 
-	it("runs during a token push when cyrusHome sits inside the home dir", async () => {
+	it("runs during a token push when kittuHome sits inside the home dir", async () => {
 		const wrapperPath = writeWrapper(OLD_WRAPPER);
-		const nestedCyrusHome = join(home, ".cyrus");
-		mkdirSync(nestedCyrusHome, { recursive: true });
+		const nestedKittuHome = join(home, ".kittu");
+		mkdirSync(nestedKittuHome, { recursive: true });
 
 		const response = await handleGitHubTokens(
 			{
@@ -301,10 +301,10 @@ exec env -u GITHUB_TOKEN -u GH_TOKEN /usr/bin/gh "$@"
 					},
 				],
 			},
-			nestedCyrusHome,
+			nestedKittuHome,
 		);
 
 		expect(response.success).toBe(true);
-		expect(readFileSync(wrapperPath, "utf8")).toContain("CYRUS_GH_TOKEN");
+		expect(readFileSync(wrapperPath, "utf8")).toContain("KITTU_GH_TOKEN");
 	});
 });

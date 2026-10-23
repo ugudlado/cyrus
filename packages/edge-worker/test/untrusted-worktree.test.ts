@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CyrusAgentSession, ILogger, RepositoryConfig } from "cyrus-core";
+import type { ILogger, KittuAgentSession, RepositoryConfig } from "kittu-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EdgeWorker } from "../src/EdgeWorker.js";
 import { RunnerConfigBuilder } from "../src/RunnerConfigBuilder.js";
@@ -10,7 +10,7 @@ import {
 	isUntrustedWorktreeEnabled,
 	UNTRUSTED_WORKTREE_ENV,
 } from "../src/untrustedWorktree.js";
-import { TEST_CYRUS_HOME } from "./test-dirs.js";
+import { TEST_KITTU_HOME } from "./test-dirs.js";
 
 const startupMock = vi.fn();
 vi.mock("@anthropic-ai/claude-agent-sdk", async (importOriginal) => {
@@ -67,7 +67,7 @@ describe("RunnerConfigBuilder untrustedWorktree", () => {
 				issueId: "i",
 				issue: { identifier: "ABC-1" },
 				workspace: { path: "/wt", isGitWorktree: true },
-			} as unknown as CyrusAgentSession,
+			} as unknown as KittuAgentSession,
 			repository: {
 				id: "r",
 				name: "r",
@@ -79,7 +79,7 @@ describe("RunnerConfigBuilder untrustedWorktree", () => {
 			allowedTools: [],
 			allowedDirectories: [],
 			disallowedTools: [],
-			cyrusHome: "/home/.cyrus",
+			kittuHome: "/home/.kittu",
 			linearWorkspaceId: "w",
 			logger: silentLogger,
 			onMessage: () => {},
@@ -91,7 +91,7 @@ describe("RunnerConfigBuilder untrustedWorktree", () => {
 			workspaceName: "chat",
 			systemPrompt: "t",
 			sessionId: "s",
-			cyrusHome: "/home/.cyrus",
+			kittuHome: "/home/.kittu",
 			platformName: "slack",
 			logger: silentLogger,
 			onMessage: () => {},
@@ -120,7 +120,7 @@ describe("EdgeWorker untrusted-worktree mode", () => {
 	const makeWorker = () => {
 		const config: EdgeWorkerConfig = {
 			proxyUrl: "http://localhost:3000",
-			cyrusHome: TEST_CYRUS_HOME,
+			kittuHome: TEST_KITTU_HOME,
 			repositories: [
 				{
 					id: "repo-1",
@@ -137,7 +137,7 @@ describe("EdgeWorker untrusted-worktree mode", () => {
 	};
 
 	beforeEach(() => {
-		dir = mkdtempSync(join(tmpdir(), "cyrus-untrusted-"));
+		dir = mkdtempSync(join(tmpdir(), "kittu-untrusted-"));
 		saved = process.env[UNTRUSTED_WORKTREE_ENV];
 		startupMock.mockReset();
 		startupMock.mockResolvedValue({});

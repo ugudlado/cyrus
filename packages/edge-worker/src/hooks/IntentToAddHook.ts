@@ -4,8 +4,8 @@ import type {
 	HookCallbackMatcher,
 	HookEvent,
 	PostToolUseHookInput,
-} from "cyrus-claude-runner";
-import type { ILogger } from "cyrus-core";
+} from "kittu-claude-runner";
+import type { ILogger } from "kittu-core";
 
 /**
  * Tool names whose successful invocation may have produced a brand-new file

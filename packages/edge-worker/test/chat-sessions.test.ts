@@ -1,12 +1,12 @@
 import { join } from "node:path";
-import { getReadOnlyTools } from "cyrus-claude-runner";
-import { type RepositoryConfig, TenantRegistry } from "cyrus-core";
+import { getReadOnlyTools } from "kittu-claude-runner";
+import { type RepositoryConfig, TenantRegistry } from "kittu-core";
 import {
 	type SlackMessageAttachment,
 	SlackMessageService,
 	SlackReactionService,
 	type SlackWebhookEvent,
-} from "cyrus-slack-event-transport";
+} from "kittu-slack-event-transport";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ChatRepositoryProvider } from "../src/ChatRepositoryProvider.js";
 import { LiveChatRepositoryProvider } from "../src/ChatRepositoryProvider.js";
@@ -20,7 +20,7 @@ import {
 	SLACK_NO_RESPONSE_SENTINEL,
 	SlackChatAdapter,
 } from "../src/SlackChatAdapter.js";
-import { TEST_CYRUS_CHAT } from "./test-dirs.js";
+import { TEST_KITTU_CHAT } from "./test-dirs.js";
 
 function createMockRunnerConfigBuilder(): RunnerConfigBuilder {
 	let defaultRunner: "claude" | "opencode" = "claude";
@@ -38,7 +38,7 @@ function createMockRunnerConfigBuilder(): RunnerConfigBuilder {
 				disallowedTools: [],
 				allowedDirectories: [input.workspacePath, ...repositoryPaths],
 				workspaceName: input.workspaceName,
-				cyrusHome: input.cyrusHome,
+				kittuHome: input.kittuHome,
 				appendSystemPrompt: input.systemPrompt,
 				...(input.resumeSessionId
 					? { resumeSessionId: input.resumeSessionId }
@@ -122,7 +122,7 @@ describe("ChatSessionHandler chat session permissions", () => {
 			eventId: "test-event",
 			threadKey: "test-thread",
 		};
-		const cyrusHome = TEST_CYRUS_CHAT;
+		const kittuHome = TEST_KITTU_CHAT;
 		const chatRepositoryPaths = ["/repo/chat-one", "/repo/chat-two"];
 		let capturedConfig: any;
 
@@ -145,7 +145,7 @@ describe("ChatSessionHandler chat session permissions", () => {
 		const onClaudeError = vi.fn();
 
 		const handler = new ChatSessionHandler(adapter, {
-			cyrusHome,
+			kittuHome,
 			chatRepositoryProvider: createStaticProvider(chatRepositoryPaths),
 			runnerConfigBuilder: createMockRunnerConfigBuilder(),
 			createRunner: createRunner,
@@ -162,7 +162,7 @@ describe("ChatSessionHandler chat session permissions", () => {
 		expect(capturedConfig.allowedTools).toContain("Bash(git -C * pull)");
 		expect(capturedConfig.allowedTools).not.toContain("Edit(**)");
 
-		const expectedWorkspace = join(cyrusHome, "slack-workspaces", "thread-key");
+		const expectedWorkspace = join(kittuHome, "slack-workspaces", "thread-key");
 		expect(capturedConfig.allowedDirectories).toContain(expectedWorkspace);
 		for (const path of chatRepositoryPaths) {
 			expect(capturedConfig.allowedDirectories).toContain(path);
@@ -174,7 +174,7 @@ describe("ChatSessionHandler chat session permissions", () => {
 			eventId: "test-event",
 			threadKey: "test-thread",
 		};
-		const cyrusHome = TEST_CYRUS_CHAT;
+		const kittuHome = TEST_KITTU_CHAT;
 		const repository = {
 			id: "repo-a",
 			name: "Repo A",
@@ -182,7 +182,7 @@ describe("ChatSessionHandler chat session permissions", () => {
 			allowedTools: [],
 		} as unknown as RepositoryConfig;
 		const chatRepositoryPaths = ["/repo/chat-one"];
-		const plugins = [{ type: "local" as const, path: "/cyrus/user-skills" }];
+		const plugins = [{ type: "local" as const, path: "/kittu/user-skills" }];
 		let capturedConfig: any;
 
 		const adapter = new TestChatAdapter("thread-key");
@@ -204,7 +204,7 @@ describe("ChatSessionHandler chat session permissions", () => {
 		});
 
 		const handler = new ChatSessionHandler(adapter, {
-			cyrusHome,
+			kittuHome,
 			chatRepositoryProvider: createStaticProvider(
 				chatRepositoryPaths,
 				repository,
@@ -257,7 +257,7 @@ describe("ChatSessionHandler chat session permissions", () => {
 		});
 
 		const handler = new ChatSessionHandler(new TestChatAdapter("thread-key"), {
-			cyrusHome: TEST_CYRUS_CHAT,
+			kittuHome: TEST_KITTU_CHAT,
 			chatRepositoryProvider: createStaticProvider(
 				["/repo/chat-one"],
 				repository,
@@ -304,7 +304,7 @@ describe("ChatSessionHandler session-initiation gate", () => {
 				}) as any,
 		);
 		const handler = new ChatSessionHandler(adapter, {
-			cyrusHome: TEST_CYRUS_CHAT,
+			kittuHome: TEST_KITTU_CHAT,
 			chatRepositoryProvider: createStaticProvider([]),
 			runnerConfigBuilder: createMockRunnerConfigBuilder(),
 			createRunner,
@@ -372,7 +372,7 @@ describe("ChatSessionHandler processed acknowledgement", () => {
 			} as any;
 		});
 		const handler = new ChatSessionHandler(adapter, {
-			cyrusHome: TEST_CYRUS_CHAT,
+			kittuHome: TEST_KITTU_CHAT,
 			chatRepositoryProvider: createStaticProvider([]),
 			runnerConfigBuilder: createMockRunnerConfigBuilder(),
 			createRunner,
@@ -426,7 +426,7 @@ describe("ChatSessionHandler processed acknowledgement", () => {
 			} as any;
 		});
 		const handler = new ChatSessionHandler(adapter, {
-			cyrusHome: TEST_CYRUS_CHAT,
+			kittuHome: TEST_KITTU_CHAT,
 			chatRepositoryProvider: createStaticProvider([]),
 			runnerConfigBuilder: createMockRunnerConfigBuilder(),
 			createRunner,
@@ -499,7 +499,7 @@ describe("ChatSessionHandler busy follow-up queueing", () => {
 			} as any;
 		});
 		const handler = new ChatSessionHandler(adapter, {
-			cyrusHome: TEST_CYRUS_CHAT,
+			kittuHome: TEST_KITTU_CHAT,
 			chatRepositoryProvider: createStaticProvider([]),
 			runnerConfigBuilder: createMockRunnerConfigBuilder(),
 			createRunner,
@@ -700,7 +700,7 @@ describe("SlackChatAdapter responding policy", () => {
 			.mockResolvedValue({} as any);
 
 		await adapter.postReply(
-			slackEvent("Cyrus, what does this function do?"),
+			slackEvent("Kittu, what does this function do?"),
 			runnerWithReply("It memoizes the result."),
 		);
 
@@ -750,7 +750,7 @@ describe("SlackChatAdapter system prompt", () => {
 			payload: {
 				user: "U1",
 				channel: "C1",
-				text: "<@cyrus> inspect code",
+				text: "<@kittu> inspect code",
 				ts: "1700000000.000100",
 				event_ts: "1700000000.000100",
 				type: "app_mention",
@@ -776,7 +776,7 @@ describe("SlackChatAdapter system prompt", () => {
 			payload: {
 				user: "U1",
 				channel: "C1",
-				text: "<@cyrus> assign this work",
+				text: "<@kittu> assign this work",
 				ts: "1700000000.000100",
 				event_ts: "1700000000.000100",
 				type: "app_mention",
@@ -794,16 +794,16 @@ describe("SlackChatAdapter system prompt", () => {
 		payload: {
 			user: "U1",
 			channel: "C1",
-			text: "<@cyrus> hello",
+			text: "<@kittu> hello",
 			ts: "1700000000.000100",
 			event_ts: "1700000000.000100",
 			type: "app_mention",
 		},
 	} as any;
 
-	it("includes stop-listening guidance with the Behaviours page link when a Cyrus app base URL is configured", () => {
+	it("includes stop-listening guidance with the Behaviours page link when a Kittu app base URL is configured", () => {
 		const adapter = new SlackChatAdapter(createStaticProvider([]), undefined, {
-			cyrusAppBaseUrl: "https://app.atcyrus.com/",
+			kittuAppBaseUrl: "https://app.atcyrus.com/",
 		});
 		const systemPrompt = adapter.buildSystemPrompt(appMentionEvent);
 
@@ -814,7 +814,7 @@ describe("SlackChatAdapter system prompt", () => {
 		expect(systemPrompt).toContain("until someone asks you a direct question");
 	});
 
-	it("omits stop-listening guidance when no Cyrus app base URL is configured (community)", () => {
+	it("omits stop-listening guidance when no Kittu app base URL is configured (community)", () => {
 		const adapter = new SlackChatAdapter(createStaticProvider([]));
 		const systemPrompt = adapter.buildSystemPrompt(appMentionEvent);
 
@@ -828,7 +828,7 @@ describe("ChatRepositoryProvider runtime updates", () => {
 		payload: {
 			user: "U1",
 			channel: "C1",
-			text: "<@cyrus> test",
+			text: "<@kittu> test",
 			ts: "1700000000.000100",
 			event_ts: "1700000000.000100",
 			type: "app_mention",
@@ -880,7 +880,7 @@ describe("ChatRepositoryProvider runtime updates", () => {
 	});
 
 	it("ChatSessionHandler reads live repository paths from provider at session build time", async () => {
-		const cyrusHome = TEST_CYRUS_CHAT;
+		const kittuHome = TEST_KITTU_CHAT;
 		const paths = ["/repo/A"];
 		const provider: ChatRepositoryProvider = {
 			getRepositoryPaths: () => [...paths],
@@ -904,7 +904,7 @@ describe("ChatRepositoryProvider runtime updates", () => {
 
 		const adapter = new TestChatAdapter("runtime-thread");
 		const handler = new ChatSessionHandler(adapter, {
-			cyrusHome,
+			kittuHome,
 			chatRepositoryProvider: provider,
 			runnerConfigBuilder: createMockRunnerConfigBuilder(),
 			createRunner,
@@ -927,7 +927,7 @@ describe("ChatRepositoryProvider runtime updates", () => {
 	});
 
 	it("ChatSessionHandler excludes removed repos from allowedDirectories", async () => {
-		const cyrusHome = TEST_CYRUS_CHAT;
+		const kittuHome = TEST_KITTU_CHAT;
 		const paths = ["/repo/A", "/repo/B"];
 		const provider: ChatRepositoryProvider = {
 			getRepositoryPaths: () => [...paths],
@@ -951,7 +951,7 @@ describe("ChatRepositoryProvider runtime updates", () => {
 
 		const adapter = new TestChatAdapter("remove-thread");
 		const handler = new ChatSessionHandler(adapter, {
-			cyrusHome,
+			kittuHome,
 			chatRepositoryProvider: provider,
 			runnerConfigBuilder: createMockRunnerConfigBuilder(),
 			createRunner,
@@ -976,7 +976,7 @@ describe("ChatRepositoryProvider runtime updates", () => {
 
 describe("ChatSessionHandler session resume", () => {
 	it("resumes with the stored OpenCode session id even if the default runner changes", async () => {
-		const cyrusHome = TEST_CYRUS_CHAT;
+		const kittuHome = TEST_KITTU_CHAT;
 		const builder = createMockRunnerConfigBuilder() as RunnerConfigBuilder & {
 			setDefaultRunner: (runnerType: "claude" | "opencode") => void;
 		};
@@ -1004,7 +1004,7 @@ describe("ChatSessionHandler session resume", () => {
 
 		const adapter = new TestChatAdapter("resume-thread");
 		const handler = new ChatSessionHandler(adapter, {
-			cyrusHome,
+			kittuHome,
 			chatRepositoryProvider: createStaticProvider([]),
 			runnerConfigBuilder: builder,
 			createRunner,
@@ -1100,7 +1100,7 @@ describe("ChatSessionHandler with two tenants (Slack)", () => {
 				}) as any,
 		);
 		const handler = new ChatSessionHandler(new SlackChatAdapter(provider), {
-			cyrusHome: TEST_CYRUS_CHAT,
+			kittuHome: TEST_KITTU_CHAT,
 			chatRepositoryProvider: provider,
 			runnerConfigBuilder: {
 				buildChatConfig,
@@ -1495,7 +1495,7 @@ describe("ChatSessionHandler thread catch-up", () => {
 		});
 
 		const handler = new ChatSessionHandler(adapter, {
-			cyrusHome: TEST_CYRUS_CHAT,
+			kittuHome: TEST_KITTU_CHAT,
 			chatRepositoryProvider: createStaticProvider([]),
 			runnerConfigBuilder: createMockRunnerConfigBuilder(),
 			createRunner,

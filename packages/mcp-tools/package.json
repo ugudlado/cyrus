@@ -1,7 +1,7 @@
 {
-	"name": "cyrus-mcp-tools",
+	"name": "kittu-mcp-tools",
 	"version": "0.2.74",
-	"description": "Runner-neutral MCP tool servers for Cyrus",
+	"description": "Runner-neutral MCP tool servers for Kittu",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/cyrusagents/cyrus.git",

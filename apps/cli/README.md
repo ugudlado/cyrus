@@ -1,33 +1,33 @@
-# cyrus-ai
+# kittu-ai
 
 AI development agent for Linear powered by Claude Code.
 
 ## Installation
 
 ```bash
-npm install -g cyrus-ai
+npm install -g kittu-ai
 ```
 
 ## Usage
 
 ### Start the agent
 ```bash
-cyrus
+kittu
 ```
 
 ### Available Commands
 
-- **`cyrus`** - Start the edge worker (default)
-- **`cyrus add-repository`** - Add a new repository configuration
-- **`cyrus check-tokens`** - Check the status of all Linear tokens
-- **`cyrus refresh-token`** - Refresh a specific Linear token
+- **`kittu`** - Start the edge worker (default)
+- **`kittu add-repository`** - Add a new repository configuration
+- **`kittu check-tokens`** - Check the status of all Linear tokens
+- **`kittu refresh-token`** - Refresh a specific Linear token
 
 ### Adding Repositories
 
-After initial setup, you can add additional repositories without restarting Cyrus:
+After initial setup, you can add additional repositories without restarting Kittu:
 
 ```bash
-cyrus add-repository
+kittu add-repository
 ```
 
 This command will:
@@ -46,9 +46,9 @@ The interactive wizard will prompt you for:
 
 ### Environment Variables
 
-- `CYRUS_HOST_EXTERNAL` - Set to `true` to allow external connections (listens on `0.0.0.0` instead of `localhost`). Default: `false`
+- `KITTU_HOST_EXTERNAL` - Set to `true` to allow external connections (listens on `0.0.0.0` instead of `localhost`). Default: `false`
   - Use this when running in Docker containers or when you need external access to the webhook server
   - When `true`: Server listens on `0.0.0.0` (all interfaces)
   - When `false` or unset: Server listens on `localhost` (local access only)
-- `LINEAR_ALLOWED_TOOLS` - Comma-separated list of tools allowed for Linear-triggered sessions. Overrides `linearAllowedTools` in `~/.cyrus/config.json` when set.
-- `DISALLOWED_TOOLS` - Comma-separated list of tools disallowed across all sessions. Overrides `defaultDisallowedTools` in `~/.cyrus/config.json` when set.
+- `LINEAR_ALLOWED_TOOLS` - Comma-separated list of tools allowed for Linear-triggered sessions. Overrides `linearAllowedTools` in `~/.kittu/config.json` when set.
+- `DISALLOWED_TOOLS` - Comma-separated list of tools disallowed across all sessions. Overrides `defaultDisallowedTools` in `~/.kittu/config.json` when set.

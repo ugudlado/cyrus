@@ -67,20 +67,20 @@ for that scenario, plus setup and cleanup.
 
 2. Start F1 server:
    ```bash
-   CYRUS_PORT=3600 CYRUS_REPO_PATH=/tmp/f1-test-drive-<timestamp> bun run apps/f1/server.ts &
+   KITTU_PORT=3600 KITTU_REPO_PATH=/tmp/f1-test-drive-<timestamp> bun run apps/f1/server.ts &
    ```
 
 3. Verify server health:
    ```bash
-   CYRUS_PORT=3600 ./f1 ping
-   CYRUS_PORT=3600 ./f1 status
+   KITTU_PORT=3600 ./f1 ping
+   KITTU_PORT=3600 ./f1 status
    ```
 
 ### Phase 2: Issue-Tracker Verification
 
 1. Create test issue:
    ```bash
-   CYRUS_PORT=3600 ./f1 create-issue \
+   KITTU_PORT=3600 ./f1 create-issue \
      --title "<issue title>" \
      --description "<issue description>"
    ```
@@ -91,12 +91,12 @@ for that scenario, plus setup and cleanup.
 
 1. Start agent session:
    ```bash
-   CYRUS_PORT=3600 ./f1 start-session --issue-id <issue-id>
+   KITTU_PORT=3600 ./f1 start-session --issue-id <issue-id>
    ```
 
 2. Monitor activities:
    ```bash
-   CYRUS_PORT=3600 ./f1 view-session --session-id <session-id>
+   KITTU_PORT=3600 ./f1 view-session --session-id <session-id>
    ```
 
 3. Verify:
@@ -110,7 +110,7 @@ Use when validating the Slack → ChatSessionHandler → ClaudeRunner path. F1 e
 
 1. Dispatch a synthetic chat event:
    ```bash
-   CYRUS_PORT=3600 ./f1 start-chat-session \
+   KITTU_PORT=3600 ./f1 start-chat-session \
      --channel C_TEST_CHAN \
      --user U_TEST_USER \
      --text "hello"
@@ -118,9 +118,9 @@ Use when validating the Slack → ChatSessionHandler → ClaudeRunner path. F1 e
    The response contains a `threadKey` of the form `<channel>:<ts>`. Reuse the same `--thread-ts` to address the same chat thread on subsequent dispatches.
 
 2. Verify shared auto-memory wiring:
-   - The chat workspace exists at `<cyrusHome>/slack-workspaces/<sanitized-threadKey>/`.
-   - The shared auto-memory directory exists (or is lazily creatable) at `<cyrusHome>/slack-memory/`.
-   - The `claude_query_options` event emitted by `ClaudeRunner` carries `cqo.settingsAutoMemoryDirectory=<cyrusHome>/slack-memory`.
+   - The chat workspace exists at `<kittuHome>/slack-workspaces/<sanitized-threadKey>/`.
+   - The shared auto-memory directory exists (or is lazily creatable) at `<kittuHome>/slack-memory/`.
+   - The `claude_query_options` event emitted by `ClaudeRunner` carries `cqo.settingsAutoMemoryDirectory=<kittuHome>/slack-memory`.
 
 3. Verify per-thread workspace isolation alongside shared memory:
    - Dispatch a second event in a different channel/thread.
@@ -136,14 +136,14 @@ Use when validating the Slack → ChatSessionHandler → ClaudeRunner path. F1 e
 
 2. Validate pagination behavior:
    ```bash
-   CYRUS_PORT=3600 ./f1 view-session --session-id <session-id> --limit 10 --offset 0
+   KITTU_PORT=3600 ./f1 view-session --session-id <session-id> --limit 10 --offset 0
    ```
 
 ### Phase 5: Cleanup
 
 1. Stop active session:
    ```bash
-   CYRUS_PORT=3600 ./f1 stop-session --session-id <session-id>
+   KITTU_PORT=3600 ./f1 stop-session --session-id <session-id>
    ```
 
 2. Stop background server process.

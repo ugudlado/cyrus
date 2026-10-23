@@ -1,15 +1,15 @@
 import type {
 	HookCallbackMatcher,
 	PostToolUseHookInput,
-} from "cyrus-claude-runner";
-import type { ILogger } from "cyrus-core";
+} from "kittu-claude-runner";
+import type { ILogger } from "kittu-core";
 import { describe, expect, it, vi } from "vitest";
 import {
 	appendMarker,
 	buildPrMarkerHook,
-	CYRUS_PR_MARKER,
 	GitHubPrMarkerProvider,
 	GitLabMrMarkerProvider,
+	KITTU_PR_MARKER,
 	type PrMarkerProvider,
 } from "../src/hooks/PrMarkerHook.js";
 
@@ -46,22 +46,22 @@ async function runHook(
 
 describe("appendMarker", () => {
 	it("appends the marker to a non-empty body", () => {
-		expect(appendMarker("hello")).toBe(`hello\n\n${CYRUS_PR_MARKER}`);
+		expect(appendMarker("hello")).toBe(`hello\n\n${KITTU_PR_MARKER}`);
 	});
 
 	it("returns just the marker for an empty body", () => {
-		expect(appendMarker("")).toBe(CYRUS_PR_MARKER);
-		expect(appendMarker(null)).toBe(CYRUS_PR_MARKER);
-		expect(appendMarker(undefined)).toBe(CYRUS_PR_MARKER);
+		expect(appendMarker("")).toBe(KITTU_PR_MARKER);
+		expect(appendMarker(null)).toBe(KITTU_PR_MARKER);
+		expect(appendMarker(undefined)).toBe(KITTU_PR_MARKER);
 	});
 
 	it("is idempotent when the marker is already present", () => {
-		const body = `summary\n\n${CYRUS_PR_MARKER}`;
+		const body = `summary\n\n${KITTU_PR_MARKER}`;
 		expect(appendMarker(body)).toBe(body);
 	});
 
 	it("trims trailing whitespace before appending", () => {
-		expect(appendMarker("body\n\n\n")).toBe(`body\n\n${CYRUS_PR_MARKER}`);
+		expect(appendMarker("body\n\n\n")).toBe(`body\n\n${KITTU_PR_MARKER}`);
 	});
 });
 

@@ -2,9 +2,9 @@ import type { FastifyInstance } from "fastify";
 import { handleCheckGh } from "./handlers/checkGh.js";
 import { handleCheckGlab } from "./handlers/checkGlab.js";
 import { handleConfigureMcp } from "./handlers/configureMcp.js";
-import { handleCyrusConfig } from "./handlers/cyrusConfig.js";
-import { handleCyrusEnv } from "./handlers/cyrusEnv.js";
 import { handleGitHubTokens } from "./handlers/githubTokens.js";
+import { handleKittuConfig } from "./handlers/kittuConfig.js";
+import { handleKittuEnv } from "./handlers/kittuEnv.js";
 import {
 	handleRepository,
 	handleRepositoryDelete,
@@ -20,11 +20,11 @@ import type {
 	CheckGhPayload,
 	CheckGlabPayload,
 	ConfigureMcpPayload,
-	CyrusConfigPayload,
-	CyrusEnvPayload,
 	DeleteRepositoryPayload,
 	DeleteSkillPayload,
 	GitHubTokensPayload,
+	KittuConfigPayload,
+	KittuEnvPayload,
 	ListSkillsPayload,
 	RepositoryPayload,
 	TestMcpPayload,
@@ -33,24 +33,24 @@ import type {
 
 /**
  * ConfigUpdater registers configuration update routes with a Fastify server
- * Handles: cyrus-config, cyrus-env, repository, update/test-mcp, update/configure-mcp, check-gh endpoints
+ * Handles: kittu-config, kittu-env, repository, update/test-mcp, update/configure-mcp, check-gh endpoints
  *
  * `getApiKey` is invoked on every auth check, so callers reading from
- * `process.env.CYRUS_API_KEY` pick up `.env` reloads (triggered by
- * `cyrus auth` after a credential rotation) without restarting the process.
+ * `process.env.KITTU_API_KEY` pick up `.env` reloads (triggered by
+ * `kittu auth` after a credential rotation) without restarting the process.
  */
 export class ConfigUpdater {
 	private fastify: FastifyInstance;
-	private cyrusHome: string;
+	private kittuHome: string;
 	private getApiKey: () => string;
 
 	constructor(
 		fastify: FastifyInstance,
-		cyrusHome: string,
+		kittuHome: string,
 		getApiKey: () => string,
 	) {
 		this.fastify = fastify;
-		this.cyrusHome = cyrusHome;
+		this.kittuHome = kittuHome;
 		this.getApiKey = getApiKey;
 	}
 
@@ -59,8 +59,8 @@ export class ConfigUpdater {
 	 */
 	register(): void {
 		// Register all routes with authentication
-		this.registerRoute("/api/update/cyrus-config", this.handleCyrusConfigRoute);
-		this.registerRoute("/api/update/cyrus-env", this.handleCyrusEnvRoute);
+		this.registerRoute("/api/update/kittu-config", this.handleKittuConfigRoute);
+		this.registerRoute("/api/update/kittu-env", this.handleKittuEnvRoute);
 		this.registerRoute("/api/update/repository", this.handleRepositoryRoute);
 		this.registerDeleteRoute(
 			"/api/update/repository",
@@ -189,32 +189,32 @@ export class ConfigUpdater {
 	}
 
 	/**
-	 * Handle cyrus-config update
+	 * Handle kittu-config update
 	 */
-	private async handleCyrusConfigRoute(
-		payload: CyrusConfigPayload,
+	private async handleKittuConfigRoute(
+		payload: KittuConfigPayload,
 	): Promise<ApiResponse> {
-		const response = await handleCyrusConfig(payload, this.cyrusHome);
+		const response = await handleKittuConfig(payload, this.kittuHome);
 
 		// Emit restart event if requested
-		if (response.success && response.data?.restartCyrus) {
-			this.fastify.log.info("Config update requested Cyrus restart");
+		if (response.success && response.data?.restartKittu) {
+			this.fastify.log.info("Config update requested Kittu restart");
 		}
 
 		return response;
 	}
 
 	/**
-	 * Handle cyrus-env update
+	 * Handle kittu-env update
 	 */
-	private async handleCyrusEnvRoute(
-		payload: CyrusEnvPayload,
+	private async handleKittuEnvRoute(
+		payload: KittuEnvPayload,
 	): Promise<ApiResponse> {
-		const response = await handleCyrusEnv(payload, this.cyrusHome);
+		const response = await handleKittuEnv(payload, this.kittuHome);
 
 		// Emit restart event if requested
-		if (response.success && response.data?.restartCyrus) {
-			this.fastify.log.info("Env update requested Cyrus restart");
+		if (response.success && response.data?.restartKittu) {
+			this.fastify.log.info("Env update requested Kittu restart");
 		}
 
 		return response;
@@ -226,7 +226,7 @@ export class ConfigUpdater {
 	private async handleRepositoryRoute(
 		payload: RepositoryPayload,
 	): Promise<ApiResponse> {
-		return handleRepository(payload, this.cyrusHome);
+		return handleRepository(payload, this.kittuHome);
 	}
 
 	/**
@@ -244,7 +244,7 @@ export class ConfigUpdater {
 	private async handleConfigureMcpRoute(
 		payload: ConfigureMcpPayload,
 	): Promise<ApiResponse> {
-		return handleConfigureMcp(payload, this.cyrusHome);
+		return handleConfigureMcp(payload, this.kittuHome);
 	}
 
 	/**
@@ -253,7 +253,7 @@ export class ConfigUpdater {
 	private async handleGitHubTokensRoute(
 		payload: GitHubTokensPayload,
 	): Promise<ApiResponse> {
-		return handleGitHubTokens(payload, this.cyrusHome);
+		return handleGitHubTokens(payload, this.kittuHome);
 	}
 
 	/**
@@ -262,7 +262,7 @@ export class ConfigUpdater {
 	private async handleCheckGhRoute(
 		payload: CheckGhPayload,
 	): Promise<ApiResponse> {
-		return handleCheckGh(payload, this.cyrusHome);
+		return handleCheckGh(payload, this.kittuHome);
 	}
 
 	/**
@@ -271,7 +271,7 @@ export class ConfigUpdater {
 	private async handleCheckGlabRoute(
 		payload: CheckGlabPayload,
 	): Promise<ApiResponse> {
-		return handleCheckGlab(payload, this.cyrusHome);
+		return handleCheckGlab(payload, this.kittuHome);
 	}
 
 	/**
@@ -280,7 +280,7 @@ export class ConfigUpdater {
 	private async handleRepositoryDeleteRoute(
 		payload: DeleteRepositoryPayload,
 	): Promise<ApiResponse> {
-		return handleRepositoryDelete(payload, this.cyrusHome);
+		return handleRepositoryDelete(payload, this.kittuHome);
 	}
 
 	/**
@@ -289,7 +289,7 @@ export class ConfigUpdater {
 	private async handleUpdateSkillRoute(
 		payload: UpdateSkillPayload,
 	): Promise<ApiResponse> {
-		return handleUpdateSkill(payload, this.cyrusHome);
+		return handleUpdateSkill(payload, this.kittuHome);
 	}
 
 	/**
@@ -298,7 +298,7 @@ export class ConfigUpdater {
 	private async handleDeleteSkillRoute(
 		payload: DeleteSkillPayload,
 	): Promise<ApiResponse> {
-		return handleDeleteSkill(payload, this.cyrusHome);
+		return handleDeleteSkill(payload, this.kittuHome);
 	}
 
 	/**
@@ -307,6 +307,6 @@ export class ConfigUpdater {
 	private async handleListSkillsRoute(
 		payload: ListSkillsPayload,
 	): Promise<ApiResponse> {
-		return handleListSkills(payload, this.cyrusHome);
+		return handleListSkills(payload, this.kittuHome);
 	}
 }

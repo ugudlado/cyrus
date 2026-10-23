@@ -38,7 +38,7 @@ export {
 } from "./sandbox-requirements.js";
 export {
 	buildBaseSessionEnv,
-	CYRUS_SESSION_ENV,
+	KITTU_SESSION_ENV,
 	normalizeMcpHttpTransport,
 } from "./session-env.js";
 export type {

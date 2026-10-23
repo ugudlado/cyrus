@@ -67,7 +67,7 @@ function build() {
 }
 
 beforeEach(() => {
-	temp = mkdtempSync(join(tmpdir(), "cyrus-artifact-test-"));
+	temp = mkdtempSync(join(tmpdir(), "kittu-artifact-test-"));
 	packagesDir = join(temp, "packages");
 	output = join(temp, "output");
 	mkdirSync(packagesDir);
@@ -142,7 +142,7 @@ describe("complete package bundle", () => {
 		}
 		expect(readdirSync(output).sort()).toEqual([
 			"SHA256SUMS",
-			`cyrus-${version}-test-bundle.tar.gz`,
+			`kittu-${version}-test-bundle.tar.gz`,
 			"manifest.json",
 		]);
 		execFileSync("shasum", ["-a", "256", "--check", "SHA256SUMS"], {
@@ -150,11 +150,11 @@ describe("complete package bundle", () => {
 		});
 		execFileSync("tar", [
 			"-xzf",
-			join(output, `cyrus-${version}-test-bundle.tar.gz`),
+			join(output, `kittu-${version}-test-bundle.tar.gz`),
 			"-C",
 			temp,
 		]);
-		const extracted = join(temp, `cyrus-${version}-test-bundle`);
+		const extracted = join(temp, `kittu-${version}-test-bundle`);
 		execFileSync("shasum", ["-a", "256", "--check", "SHA256SUMS"], {
 			cwd: extracted,
 		});
@@ -216,11 +216,11 @@ describe("generated installer isolation", () => {
 		expect(build().status).toBe(0);
 		execFileSync("tar", [
 			"-xzf",
-			join(output, `cyrus-${version}-test-bundle.tar.gz`),
+			join(output, `kittu-${version}-test-bundle.tar.gz`),
 			"-C",
 			temp,
 		]);
-		extracted = join(temp, `cyrus-${version}-test-bundle`);
+		extracted = join(temp, `kittu-${version}-test-bundle`);
 		fakeBin = join(temp, "fake-bin");
 		marker = join(temp, "npm-called.json");
 		operatorHome = join(temp, "operator-home");
@@ -234,7 +234,7 @@ describe("generated installer isolation", () => {
 		const cli = `#!${process.execPath}\nconst fs=require('node:fs');fs.appendFileSync(${JSON.stringify(join(temp, "cli-env.jsonl"))},JSON.stringify(${capture})+'\\n');if(process.argv[2]==='--version')console.log(${JSON.stringify(version)});`;
 		writeFileSync(
 			join(fakeBin, "npm"),
-			`#!${process.execPath}\nconst fs=require('node:fs'),path=require('node:path');fs.writeFileSync(${JSON.stringify(marker)},JSON.stringify(${capture}));const prefix=process.argv[process.argv.indexOf('--prefix')+1];fs.mkdirSync(path.join(prefix,'bin'),{recursive:true});fs.writeFileSync(path.join(prefix,'bin/cyrus'),${JSON.stringify(cli)},{mode:0o700});`,
+			`#!${process.execPath}\nconst fs=require('node:fs'),path=require('node:path');fs.writeFileSync(${JSON.stringify(marker)},JSON.stringify(${capture}));const prefix=process.argv[process.argv.indexOf('--prefix')+1];fs.mkdirSync(path.join(prefix,'bin'),{recursive:true});fs.writeFileSync(path.join(prefix,'bin/kittu'),${JSON.stringify(cli)},{mode:0o700});`,
 			{ mode: 0o700 },
 		);
 	});
@@ -259,14 +259,14 @@ describe("generated installer isolation", () => {
 	it("refuses an existing installation before invoking npm, preserving its contents and operator state", () => {
 		const prefix = join(temp, "existing-prefix");
 		mkdirSync(prefix);
-		writeFileSync(join(prefix, "sentinel"), "existing Cyrus install");
+		writeFileSync(join(prefix, "sentinel"), "existing Kittu install");
 		const result = install(prefix);
 		expect(result.status).not.toBe(0);
 		expect(result.stderr).toContain("refusing");
 		expect(existsSync(marker)).toBe(false);
 		expect(readdirSync(prefix)).toEqual(["sentinel"]);
 		expect(readFileSync(join(prefix, "sentinel"), "utf8")).toBe(
-			"existing Cyrus install",
+			"existing Kittu install",
 		);
 		expect(readdirSync(operatorHome).sort()).toEqual([
 			".npmrc",
@@ -358,7 +358,7 @@ describe("artifact workflow boundary", () => {
 			"pnpm lint",
 			"pnpm build",
 			"pnpm test:packages:run",
-			"pnpm --filter cyrus-ai test:run",
+			"pnpm --filter kittu-ai test:run",
 			"pnpm typecheck",
 			"test-cli-artifacts.mjs validate",
 			"test-cli-artifacts.mjs bundle",

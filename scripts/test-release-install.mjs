@@ -20,7 +20,7 @@ const env = {
 	NPM_CONFIG_USERCONFIG: join(root, "user.npmrc"),
 	NPM_CONFIG_GLOBALCONFIG: join(root, "global.npmrc"),
 	NPM_CONFIG_CACHE: join(root, "cache"),
-	CYRUS_SENTRY_DISABLED: "1",
+	KITTU_SENTRY_DISABLED: "1",
 };
 const call = (bin, args) =>
 	execFileSync(bin, args, {
@@ -42,21 +42,21 @@ try {
 		"--global",
 		"--prefix",
 		join(root, "prefix"),
-		`cyrus-ai@${stamp.channel}`,
+		`kittu-ai@${stamp.channel}`,
 		"--registry=https://registry.npmjs.org",
 		"--no-audit",
 		"--no-fund",
 	];
-	proof.command = `npm install -g cyrus-ai@${stamp.channel}`;
+	proof.command = `npm install -g kittu-ai@${stamp.channel}`;
 	call("npm", args);
-	const cli = join(root, "prefix/bin/cyrus");
+	const cli = join(root, "prefix/bin/kittu");
 	if (call(cli, ["--version"]).trim() !== stamp.version)
 		throw new Error("Installed CLI version differs from channel request.");
 	call(cli, ["--help"]);
 	proof.cli = true;
 	const cliPackage = join(
 		root,
-		"prefix/lib/node_modules/cyrus-ai/package.json",
+		"prefix/lib/node_modules/kittu-ai/package.json",
 	);
 	const visited = new Map(),
 		manifestPaths = new Map();
@@ -66,12 +66,12 @@ try {
 		manifestPaths.set(p.name, manifestPath);
 		visited.set(p.name, {
 			version: p.version,
-			sourceSha: p.cyrusTestRelease?.sourceSha,
+			sourceSha: p.kittuTestRelease?.sourceSha,
 		});
 		if (releasePackages.some((x) => x.name === p.name)) {
 			if (
 				p.version !== stamp.version ||
-				JSON.stringify(p.cyrusTestRelease) !== JSON.stringify(stamp)
+				JSON.stringify(p.kittuTestRelease) !== JSON.stringify(stamp)
 			)
 				throw new Error(`Installed provenance mismatch: ${p.name}`);
 		}
@@ -96,7 +96,7 @@ try {
 	// npm 12 defaults to blocking dependency install scripts: cloudflared's
 	// binary postinstall must be allowed explicitly before claiming tunnel support.
 	const cloudflareReq = createRequire(
-		manifestPaths.get("cyrus-cloudflare-tunnel-client"),
+		manifestPaths.get("kittu-cloudflare-tunnel-client"),
 	);
 	const cloudflare = await import(cloudflareReq.resolve("cloudflared"));
 	const binary = cloudflare.bin;

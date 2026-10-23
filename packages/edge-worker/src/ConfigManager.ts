@@ -6,7 +6,7 @@ import type {
 	EdgeWorkerConfig,
 	ILogger,
 	RepositoryConfig,
-} from "cyrus-core";
+} from "kittu-core";
 
 // ------------------------------------------------------------------
 // Exhaustiveness guard for hot-reload key handling

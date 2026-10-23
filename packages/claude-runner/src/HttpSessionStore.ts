@@ -3,13 +3,13 @@ import type {
 	SessionStore,
 	SessionStoreEntry,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { ILogger } from "cyrus-core";
+import type { ILogger } from "kittu-core";
 
 /**
  * HTTP-backed Claude Agent SDK SessionStore.
  *
  * Mirrors session transcripts from an edge-worker / ClaudeRunner to the
- * Cyrus hosted control plane, which persists them in a per-team Supabase
+ * Kittu hosted control plane, which persists them in a per-team Supabase
  * table.
  *
  * References (CYPACK-1121):
@@ -21,9 +21,9 @@ import type { ILogger } from "cyrus-core";
  * Every request carries two pieces of identity, provided by the edge's
  * environment:
  *
- *   - `Authorization: Bearer <CYRUS_API_KEY>` — proves the caller holds the
+ *   - `Authorization: Bearer <KITTU_API_KEY>` — proves the caller holds the
  *     team's API key.
- *   - `X-Cyrus-Team-Id:  <CYRUS_TEAM_ID>`    — names the team the request
+ *   - `X-Kittu-Team-Id:  <KITTU_TEAM_ID>`    — names the team the request
  *     belongs to.
  *
  * The server looks up the team by id (O(1) primary-key lookup) and verifies
@@ -50,7 +50,7 @@ export interface HttpSessionStoreOptions {
 	/** Team-scoped API key. Sent as `Authorization: Bearer <apiKey>`. */
 	apiKey: string;
 	/**
-	 * Team id this edge belongs to. Sent as `X-Cyrus-Team-Id: <teamId>`.
+	 * Team id this edge belongs to. Sent as `X-Kittu-Team-Id: <teamId>`.
 	 * The server verifies the bearer token actually belongs to this team.
 	 */
 	teamId: string;
@@ -71,7 +71,7 @@ type JsonBody = Record<string, unknown>;
  * Header name used to identify the team. Extracted as a module-level
  * constant so tests and any future alternate transport stay in sync.
  */
-export const CYRUS_TEAM_ID_HEADER = "X-Cyrus-Team-Id";
+export const KITTU_TEAM_ID_HEADER = "X-Kittu-Team-Id";
 
 export class HttpSessionStore implements SessionStore {
 	private readonly baseUrl: string;
@@ -159,7 +159,7 @@ export class HttpSessionStore implements SessionStore {
 		return {
 			"Content-Type": "application/json",
 			Authorization: `Bearer ${this.apiKey}`,
-			[CYRUS_TEAM_ID_HEADER]: this.teamId,
+			[KITTU_TEAM_ID_HEADER]: this.teamId,
 		};
 	}
 

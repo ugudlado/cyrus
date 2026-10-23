@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import type { ILogger } from "cyrus-core";
+import type { ILogger } from "kittu-core";
 
 /**
  * A single failed sandbox requirement, with user-facing guidance

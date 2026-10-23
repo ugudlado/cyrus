@@ -2,8 +2,8 @@ import { execSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { StopHookInput } from "cyrus-claude-runner";
-import type { ILogger } from "cyrus-core";
+import type { StopHookInput } from "kittu-claude-runner";
+import type { ILogger } from "kittu-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	buildStopHook,
@@ -61,7 +61,7 @@ describe("buildStopHook", () => {
 	let workdir: string;
 
 	beforeEach(() => {
-		workdir = mkdtempSync(join(tmpdir(), "cyrus-stop-hook-build-"));
+		workdir = mkdtempSync(join(tmpdir(), "kittu-stop-hook-build-"));
 	});
 
 	afterEach(() => {
@@ -78,7 +78,7 @@ describe("buildStopHook", () => {
 
 	it("allows the stop through when the working tree is clean", async () => {
 		// Set up a clean repo synced with its upstream.
-		const remote = mkdtempSync(join(tmpdir(), "cyrus-stop-hook-remote-"));
+		const remote = mkdtempSync(join(tmpdir(), "kittu-stop-hook-remote-"));
 		try {
 			execSync(`git init --bare`, { cwd: remote, stdio: "ignore" });
 			git(workdir, "init -b main");
@@ -159,7 +159,7 @@ describe("inspectGitGuardrail", () => {
 	let workdir: string;
 
 	beforeEach(() => {
-		workdir = mkdtempSync(join(tmpdir(), "cyrus-stop-hook-"));
+		workdir = mkdtempSync(join(tmpdir(), "kittu-stop-hook-"));
 	});
 
 	afterEach(() => {
@@ -171,7 +171,7 @@ describe("inspectGitGuardrail", () => {
 	});
 
 	it("returns null on a clean repo with no commits ahead of upstream", () => {
-		const remote = mkdtempSync(join(tmpdir(), "cyrus-stop-hook-remote-"));
+		const remote = mkdtempSync(join(tmpdir(), "kittu-stop-hook-remote-"));
 		try {
 			execSync(`git init --bare`, { cwd: remote, stdio: "ignore" });
 			git(workdir, "init -b main");
@@ -229,7 +229,7 @@ describe("inspectGitGuardrail", () => {
 	});
 
 	it("counts commits ahead of upstream as unshipped work", () => {
-		const remote = mkdtempSync(join(tmpdir(), "cyrus-stop-hook-remote-"));
+		const remote = mkdtempSync(join(tmpdir(), "kittu-stop-hook-remote-"));
 		try {
 			execSync(`git init --bare`, { cwd: remote, stdio: "ignore" });
 			git(workdir, "init -b main");
@@ -252,7 +252,7 @@ describe("inspectGitGuardrail", () => {
 	});
 
 	it("branch upstream set to origin/<branch>: counts unpushed before push, 0 after", () => {
-		const remote = mkdtempSync(join(tmpdir(), "cyrus-stop-hook-remote-"));
+		const remote = mkdtempSync(join(tmpdir(), "kittu-stop-hook-remote-"));
 		try {
 			execSync(`git init --bare`, { cwd: remote, stdio: "ignore" });
 			git(workdir, "init -b main");

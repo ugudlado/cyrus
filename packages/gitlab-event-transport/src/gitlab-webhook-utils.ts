@@ -182,7 +182,7 @@ export function extractSessionKey(event: GitLabWebhookEvent): string {
  */
 export function stripMention(
 	noteBody: string,
-	mentionHandle: string = "@cyrusagent",
+	mentionHandle: string = "@kittuagent",
 ): string {
 	return noteBody
 		.replace(

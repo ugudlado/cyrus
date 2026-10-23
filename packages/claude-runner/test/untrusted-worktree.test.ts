@@ -51,7 +51,7 @@ describe("ClaudeRunner untrusted-worktree mode", () => {
 		});
 		const config: ClaudeRunnerConfig = {
 			workingDirectory: "/wt",
-			cyrusHome: "/tmp/test-cyrus-home",
+			kittuHome: "/tmp/test-kittu-home",
 			...(untrustedWorktree !== undefined && { untrustedWorktree }),
 		};
 		await new ClaudeRunner(config).start("test");

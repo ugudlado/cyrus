@@ -19,7 +19,7 @@ describe("hosted listener port contract", () => {
 		expect(ConfigApiClient.isValid(response)).toBe(true);
 		expect(await ConfigApiClient.getConfig("fixture-auth")).toEqual(response);
 		expect(fetch).toHaveBeenCalledWith(expect.any(String), {
-			headers: { "X-Cyrus-Config-Capabilities": "self-host-port-v1" },
+			headers: { "X-Kittu-Config-Capabilities": "self-host-port-v1" },
 		});
 	});
 	it.each([

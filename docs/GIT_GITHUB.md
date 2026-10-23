@@ -1,20 +1,20 @@
 # Git & GitHub Setup
 
-Cyrus uses your local Git and GitHub CLI (`gh`) authentication to create commits and pull requests. This guide explains how to configure these tools and what permissions Cyrus will have.
+Kittu uses your local Git and GitHub CLI (`gh`) authentication to create commits and pull requests. This guide explains how to configure these tools and what permissions Kittu will have.
 
 ---
 
 ## Understanding Permissions
 
-**Important:** Cyrus operates with the same permissions as your authenticated Git and GitHub CLI user.
+**Important:** Kittu operates with the same permissions as your authenticated Git and GitHub CLI user.
 
-When Cyrus creates commits and PRs:
+When Kittu creates commits and PRs:
 - All commits are attributed to your Git user (`git config user.name` and `user.email`)
 - All PRs are created under your GitHub account
 - Your repository access permissions apply to all operations
 - Co-authored-by attribution is disabled by default (configured via `.claude/settings.json`)
 
-This means Cyrus can access any repository your authenticated user can access. Configure authentication carefully based on what repositories you want Cyrus to work with.
+This means Kittu can access any repository your authenticated user can access. Configure authentication carefully based on what repositories you want Kittu to work with.
 
 ---
 
@@ -94,7 +94,7 @@ gh auth status
 
 ## Security Considerations
 
-- **Use a dedicated account** for Cyrus if you want to limit its access
+- **Use a dedicated account** for Kittu if you want to limit its access
 - **Repository access** is determined by your SSH key and GitHub token permissions
-- **Review permissions** before adding repositories to Cyrus
-- **Audit commits** - Cyrus-authored PRs include a `<!-- generated-by-cyrus -->` marker for traceability
+- **Review permissions** before adding repositories to Kittu
+- **Audit commits** - Kittu-authored PRs include a `<!-- generated-by-kittu -->` marker for traceability

@@ -1,7 +1,7 @@
 {
-	"name": "cyrus-codex-runner",
+	"name": "kittu-codex-runner",
 	"version": "0.2.74",
-	"description": "Codex CLI process wrapper for Cyrus",
+	"description": "Codex CLI process wrapper for Kittu",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/cyrusagents/cyrus.git",
@@ -23,8 +23,8 @@
 	"dependencies": {
 		"@openai/codex": "^0.159.2",
 		"@openai/codex-sdk": "^0.159.2",
-		"cyrus-core": "workspace:*",
-		"cyrus-simple-agent-runner": "workspace:*"
+		"kittu-core": "workspace:*",
+		"kittu-simple-agent-runner": "workspace:*"
 	},
 	"devDependencies": {
 		"@types/node": "^20.0.0",
