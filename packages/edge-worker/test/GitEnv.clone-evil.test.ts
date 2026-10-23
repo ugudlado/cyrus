@@ -7,7 +7,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { ILogger } from "cyrus-core";
+import type { ILogger } from "kittu-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GitService } from "../src/GitService.js";
 import { GitEnv, SessionGit } from "../src/gitEnv.js";
@@ -47,7 +47,7 @@ describe("evil clone: planted config, hooks and pointers", () => {
 		git(base.repo, "checkout", "main");
 		const service = new GitService(
 			{
-				cyrusHome: join(root, "home"),
+				kittuHome: join(root, "home"),
 				gitAllowFileProtocol: true,
 				cloneMinFreeBytes: 0,
 			},
@@ -99,7 +99,7 @@ describe("evil clone: planted config, hooks and pointers", () => {
 			writeFileSync(p, `#!/bin/sh\necho ran >> "${markers}/hook-${h}"\n`);
 			chmodSync(p, 0o755);
 		}
-		const gitEnv = new GitEnv({ cyrusHome: join(root, "home") });
+		const gitEnv = new GitEnv({ kittuHome: join(root, "home") });
 		sessionGitApi = new SessionGit(gitEnv, [
 			{
 				repositoryId: "repo-1",
@@ -141,7 +141,7 @@ describe("evil clone: planted config, hooks and pointers", () => {
 		// Reuse path: re-stamp + fetch + ff under the pins.
 		const service = new GitService(
 			{
-				cyrusHome: join(root, "home"),
+				kittuHome: join(root, "home"),
 				gitAllowFileProtocol: true,
 				cloneMinFreeBytes: 0,
 			},

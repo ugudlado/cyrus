@@ -1,14 +1,14 @@
-import type { SDKMessage } from "cyrus-core";
+import type { SDKMessage } from "kittu-core";
 import {
 	NoResponseError,
 	SessionError,
 	type SimpleAgentQueryOptions,
 	SimpleAgentRunner,
-} from "cyrus-simple-agent-runner";
+} from "kittu-simple-agent-runner";
 import { GeminiRunner } from "./GeminiRunner.js";
 
 /**
- * Concrete implementation using GeminiRunner from cyrus-gemini-runner package.
+ * Concrete implementation using GeminiRunner from kittu-gemini-runner package.
  *
  * This implementation uses the Gemini CLI to execute queries and
  * constrains the responses to an enumerated set.
@@ -32,7 +32,7 @@ export class SimpleGeminiRunner<T extends string> extends SimpleAgentRunner<T> {
 		// Create GeminiRunner with configuration
 		const runner = new GeminiRunner({
 			workingDirectory: this.config.workingDirectory,
-			cyrusHome: this.config.cyrusHome,
+			kittuHome: this.config.kittuHome,
 			model: this.config.model,
 			fallbackModel: this.config.fallbackModel,
 			maxTurns: this.config.maxTurns,
@@ -93,8 +93,7 @@ export class SimpleGeminiRunner<T extends string> extends SimpleAgentRunner<T> {
 			if (
 				message.type === "assistant" &&
 				"message" in message &&
-				message.message &&
-				message.message.content
+				message.message?.content
 			) {
 				// Extract text from content blocks
 				for (const block of message.message.content) {
@@ -157,8 +156,7 @@ export class SimpleGeminiRunner<T extends string> extends SimpleAgentRunner<T> {
 		if (
 			message.type === "assistant" &&
 			"message" in message &&
-			message.message &&
-			message.message.content
+			message.message?.content
 		) {
 			for (const block of message.message.content) {
 				if (typeof block === "object" && block !== null && "type" in block) {

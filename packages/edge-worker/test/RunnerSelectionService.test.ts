@@ -1,4 +1,4 @@
-import type { EdgeWorkerConfig } from "cyrus-core";
+import type { EdgeWorkerConfig } from "kittu-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RunnerSelectionService } from "../src/RunnerSelectionService.js";
 

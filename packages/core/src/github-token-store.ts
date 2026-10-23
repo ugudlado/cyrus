@@ -28,7 +28,7 @@ export interface GitHubInstallationToken {
 }
 
 /**
- * On-disk shape of `<cyrusHome>/github-tokens.json`.
+ * On-disk shape of `<kittuHome>/github-tokens.json`.
  */
 export interface GitHubTokensFile {
 	version: 1;
@@ -36,7 +36,7 @@ export interface GitHubTokensFile {
 	tokens: GitHubInstallationToken[];
 }
 
-/** Filename of the token store inside the Cyrus home directory */
+/** Filename of the token store inside the Kittu home directory */
 export const GITHUB_TOKENS_FILENAME = "github-tokens.json";
 
 /**
@@ -97,18 +97,18 @@ function isExpired(token: GitHubInstallationToken, now: number): boolean {
  * external writer.
  */
 export class GitHubTokenStore {
-	private cyrusHome: string;
+	private kittuHome: string;
 	private cachedTokens: GitHubInstallationToken[] | null = null;
 	private cachedMtimeMs: number | null = null;
 	private cachedSize: number | null = null;
 
-	constructor(cyrusHome: string) {
-		this.cyrusHome = cyrusHome;
+	constructor(kittuHome: string) {
+		this.kittuHome = kittuHome;
 	}
 
 	/** Absolute path of the token store file */
 	get filePath(): string {
-		return join(this.cyrusHome, GITHUB_TOKENS_FILENAME);
+		return join(this.kittuHome, GITHUB_TOKENS_FILENAME);
 	}
 
 	/**

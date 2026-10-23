@@ -1,4 +1,4 @@
-import type { CyrusAgentSession, ILogger, RepositoryConfig } from "cyrus-core";
+import type { ILogger, KittuAgentSession, RepositoryConfig } from "kittu-core";
 import { describe, expect, it } from "vitest";
 import {
 	type IChatToolResolver,
@@ -44,7 +44,7 @@ function build(opts: {
 			issueId: "issue-1",
 			issue: { identifier: "ABC-1" },
 			workspace: { path: "/ws/root", isGitWorktree: true },
-		} as unknown as CyrusAgentSession,
+		} as unknown as KittuAgentSession,
 		repository: {
 			id: "repo-a",
 			name: "Repo A",
@@ -56,7 +56,7 @@ function build(opts: {
 		allowedTools: opts.allowedTools,
 		allowedDirectories: ["/repos/repo-a"],
 		disallowedTools: [],
-		cyrusHome: "/tmp/cyrus-home",
+		kittuHome: "/tmp/kittu-home",
 		linearWorkspaceId: "ws-1",
 		logger: silentLogger,
 		onMessage: () => {},
@@ -79,7 +79,7 @@ describe("RunnerConfigBuilder sandbox writable paths", () => {
 		expect(config.sandbox.filesystem).toEqual({
 			allowRead: [
 				".",
-				"/tmp/cyrus-home/root/attachments",
+				"/tmp/kittu-home/root/attachments",
 				"/home/me/.supabase",
 			],
 			denyRead: ["~/"],

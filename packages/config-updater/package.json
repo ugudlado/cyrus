@@ -1,7 +1,7 @@
 {
-	"name": "cyrus-config-updater",
+	"name": "kittu-config-updater",
 	"version": "0.2.74",
-	"description": "Configuration update handlers for Cyrus agent",
+	"description": "Configuration update handlers for Kittu agent",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/cyrusagents/cyrus.git",
@@ -29,7 +29,7 @@
 	},
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "^1.31.0",
-		"cyrus-core": "workspace:*",
+		"kittu-core": "workspace:*",
 		"fastify": "^5.12.5",
 		"zod": "^4.3.6"
 	},
@@ -42,8 +42,8 @@
 		"config",
 		"update",
 		"handler",
-		"cyrus"
+		"kittu"
 	],
-	"author": "Cyrus Team",
-	"license": "MIT"
+	"author": "Kittu Team",
+	"license": "Apache-2.0"
 }

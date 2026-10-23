@@ -1,19 +1,19 @@
 import { readFile } from "node:fs/promises";
 import { LinearClient } from "@linear/sdk";
-import { ClaudeRunner, type HookCallbackMatcher } from "cyrus-claude-runner";
-import type { LinearAgentSessionCreatedWebhook } from "cyrus-core";
+import { ClaudeRunner, type HookCallbackMatcher } from "kittu-claude-runner";
+import type { LinearAgentSessionCreatedWebhook } from "kittu-core";
 import {
 	isAgentSessionCreatedWebhook,
 	isAgentSessionPromptedWebhook,
-} from "cyrus-core";
-import { GeminiRunner } from "cyrus-gemini-runner";
-import { LinearEventTransport } from "cyrus-linear-event-transport";
+} from "kittu-core";
+import { GeminiRunner } from "kittu-gemini-runner";
+import { LinearEventTransport } from "kittu-linear-event-transport";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSessionManager } from "../src/AgentSessionManager.js";
 import { EdgeWorker } from "../src/EdgeWorker.js";
 import { SharedApplicationServer } from "../src/SharedApplicationServer.js";
 import type { EdgeWorkerConfig, RepositoryConfig } from "../src/types.js";
-import { TEST_CYRUS_HOME } from "./test-dirs.js";
+import { TEST_KITTU_HOME } from "./test-dirs.js";
 
 // Mock fs/promises
 vi.mock("fs/promises", () => ({
@@ -24,14 +24,14 @@ vi.mock("fs/promises", () => ({
 }));
 
 // Mock dependencies
-vi.mock("cyrus-claude-runner");
-vi.mock("cyrus-codex-runner");
-vi.mock("cyrus-gemini-runner");
-vi.mock("cyrus-linear-event-transport");
+vi.mock("kittu-claude-runner");
+vi.mock("kittu-codex-runner");
+vi.mock("kittu-gemini-runner");
+vi.mock("kittu-linear-event-transport");
 vi.mock("@linear/sdk");
 vi.mock("../src/SharedApplicationServer.js");
 vi.mock("../src/AgentSessionManager.js");
-vi.mock("cyrus-core", async (importOriginal) => {
+vi.mock("kittu-core", async (importOriginal) => {
 	const actual = (await importOriginal()) as any;
 	return {
 		...actual,
@@ -156,7 +156,7 @@ describe("EdgeWorker - Screenshot Upload Guidance Hooks", () => {
 
 		// Mock AgentSessionManager
 		mockAgentSessionManager = {
-			createCyrusAgentSession: vi.fn(),
+			createKittuAgentSession: vi.fn(),
 			getSession: vi.fn().mockReturnValue({
 				issueId: "issue-123",
 				workspace: { path: "/test/workspaces/TEST-123" },
@@ -209,7 +209,7 @@ Issue: {{issue_identifier}}`;
 
 		mockConfig = {
 			proxyUrl: "http://localhost:3000",
-			cyrusHome: TEST_CYRUS_HOME,
+			kittuHome: TEST_KITTU_HOME,
 			repositories: [mockRepository],
 			linearWorkspaces: {
 				"test-workspace": { linearToken: "test-token" },
@@ -320,7 +320,7 @@ Issue: {{issue_identifier}}`;
 						identifier: "TEST-123",
 						team: { key: "TEST" },
 					},
-					comment: { body: "@cyrus work on this" },
+					comment: { body: "@kittu work on this" },
 				},
 			};
 
@@ -350,7 +350,7 @@ Issue: {{issue_identifier}}`;
 						identifier: "TEST-123",
 						team: { key: "TEST" },
 					},
-					comment: { body: "@cyrus take a screenshot" },
+					comment: { body: "@kittu take a screenshot" },
 				},
 			};
 
@@ -390,7 +390,7 @@ Issue: {{issue_identifier}}`;
 						identifier: "TEST-123",
 						team: { key: "TEST" },
 					},
-					comment: { body: "@cyrus take a screenshot" },
+					comment: { body: "@kittu take a screenshot" },
 				},
 			};
 
@@ -428,7 +428,7 @@ Issue: {{issue_identifier}}`;
 						identifier: "TEST-123",
 						team: { key: "TEST" },
 					},
-					comment: { body: "@cyrus take a screenshot" },
+					comment: { body: "@kittu take a screenshot" },
 				},
 			};
 
@@ -471,7 +471,7 @@ Issue: {{issue_identifier}}`;
 						identifier: "TEST-123",
 						team: { key: "TEST" },
 					},
-					comment: { body: "@cyrus take a screenshot with devtools" },
+					comment: { body: "@kittu take a screenshot with devtools" },
 				},
 			};
 
@@ -503,7 +503,7 @@ Issue: {{issue_identifier}}`;
 						identifier: "TEST-123",
 						team: { key: "TEST" },
 					},
-					comment: { body: "@cyrus take a screenshot with devtools" },
+					comment: { body: "@kittu take a screenshot with devtools" },
 				},
 			};
 
@@ -522,7 +522,7 @@ Issue: {{issue_identifier}}`;
 				devtoolsHook!,
 				"mcp__chrome-devtools__take_screenshot",
 				{
-					filePath: "/home/cyrus/cyrus-workspaces/PF-738/step1-screenshot.png",
+					filePath: "/home/kittu/kittu-workspaces/PF-738/step1-screenshot.png",
 					fullPage: true,
 				},
 				{

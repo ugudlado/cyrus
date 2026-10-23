@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 function fixture() {
-	const root = mkdtempSync(join(tmpdir(), "cyrus-release-evidence-"));
+	const root = mkdtempSync(join(tmpdir(), "kittu-release-evidence-"));
 	directories.push(root);
 	const git = (...args: string[]) =>
 		execFileSync("git", args, {

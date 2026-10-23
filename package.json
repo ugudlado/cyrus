@@ -1,12 +1,12 @@
 {
-	"name": "cyrus-monorepo",
+	"name": "kittu-monorepo",
 	"version": "1.0.1",
 	"private": true,
-	"description": "Monorepo for Cyrus - Linear Claude Agent integration",
+	"description": "Monorepo for Kittu - Linear Claude Agent integration",
 	"packageManager": "pnpm@10.33.1",
 	"type": "module",
 	"scripts": {
-		"build": "pnpm -r --filter='!@cyrus/electron' build",
+		"build": "pnpm -r --filter='!@kittu/electron' build",
 		"dev": "pnpm -r --parallel dev",
 		"test": "pnpm -r test",
 		"lint": "biome check",
@@ -21,14 +21,14 @@
 		"linear",
 		"claude",
 		"linear-agent",
-		"cyrus",
+		"kittu",
 		"anthropic",
 		"ai",
 		"agent",
 		"monorepo"
 	],
 	"author": "Ceedar",
-	"license": "MIT",
+	"license": "Apache-2.0",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/cyrusagents/cyrus"

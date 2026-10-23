@@ -1,4 +1,4 @@
-import type { RepositoryConfig, TenantRegistry } from "cyrus-core";
+import type { RepositoryConfig, TenantRegistry } from "kittu-core";
 
 /**
  * Abstraction for accessing the current set of chat-accessible repositories.

@@ -42,7 +42,7 @@ beforeEach(() => {
 			JSON.stringify({
 				name,
 				version,
-				cyrusTestRelease: stamp,
+				kittuTestRelease: stamp,
 				publishConfig: { access: "public" },
 				scripts: { prepublishOnly: "exit 99" },
 			}),

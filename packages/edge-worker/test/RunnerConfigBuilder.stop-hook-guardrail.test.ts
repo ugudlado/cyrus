@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { StopHookInput } from "cyrus-claude-runner";
-import type { ILogger } from "cyrus-core";
+import type { StopHookInput } from "kittu-claude-runner";
+import type { ILogger } from "kittu-core";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SessionGit } from "../src/gitEnv.js";
 import {

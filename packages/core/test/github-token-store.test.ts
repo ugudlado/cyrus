@@ -69,16 +69,16 @@ describe("extractOwnerFromGitHubUrl", () => {
 });
 
 describe("GitHubTokenStore", () => {
-	let cyrusHome: string;
+	let kittuHome: string;
 	let store: GitHubTokenStore;
 
 	beforeEach(() => {
-		cyrusHome = mkdtempSync(join(tmpdir(), "cyrus-token-store-"));
-		store = new GitHubTokenStore(cyrusHome);
+		kittuHome = mkdtempSync(join(tmpdir(), "kittu-token-store-"));
+		store = new GitHubTokenStore(kittuHome);
 	});
 
 	afterEach(() => {
-		rmSync(cyrusHome, { recursive: true, force: true });
+		rmSync(kittuHome, { recursive: true, force: true });
 	});
 
 	describe("save / load", () => {
@@ -93,7 +93,7 @@ describe("GitHubTokenStore", () => {
 
 		it("writes the versioned file shape with owner-only permissions", () => {
 			store.save([token()]);
-			const filePath = join(cyrusHome, "github-tokens.json");
+			const filePath = join(kittuHome, "github-tokens.json");
 			const parsed = JSON.parse(readFileSync(filePath, "utf-8"));
 			expect(parsed.version).toBe(1);
 			expect(typeof parsed.updatedAt).toBe("string");
@@ -104,7 +104,7 @@ describe("GitHubTokenStore", () => {
 
 		it("does not leave a temp file behind", () => {
 			store.save([token()]);
-			expect(existsSync(join(cyrusHome, "github-tokens.json.tmp"))).toBe(false);
+			expect(existsSync(join(kittuHome, "github-tokens.json.tmp"))).toBe(false);
 		});
 
 		it("returns an empty array when the file is missing", () => {
@@ -121,7 +121,7 @@ describe("GitHubTokenStore", () => {
 		it("sees writes made by a different store instance", () => {
 			store.save([token({ token: "ghs_first" })]);
 			expect(store.load()[0]?.token).toBe("ghs_first");
-			const writer = new GitHubTokenStore(cyrusHome);
+			const writer = new GitHubTokenStore(kittuHome);
 			writer.save([
 				token({ token: "ghs_second" }),
 				token({ organization: "another", token: "ghs_third" }),

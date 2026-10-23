@@ -39,11 +39,11 @@ import type {
 	SDKMessage,
 	SDKResultMessage,
 	SDKUserMessage,
-} from "cyrus-core";
+} from "kittu-core";
 import { CursorMessageFormatter } from "./formatter.js";
 import {
-	buildCyrusPermissionsConfig,
-	type CyrusPermissionsConfig,
+	buildKittuPermissionsConfig,
+	type KittuPermissionsConfig,
 } from "./permissions.js";
 import { buildCursorSandboxJson, buildSandboxEnv } from "./sandbox.js";
 import type {
@@ -192,7 +192,7 @@ function createResultUsage(
 		// Cursor's `turn-ended` delta exposes `cacheWriteTokens` as a single
 		// counter that maps onto Anthropic's `cache_creation_input_tokens`. The
 		// SDK does not split ephemeral 1h vs 5m — we report 0 for both buckets
-		// and put the full count in the parent field (which is what Cyrus
+		// and put the full count in the parent field (which is what Kittu
 		// formatters and Linear's cost display read first).
 		cache_creation_input_tokens: totals?.cacheWriteTokens ?? 0,
 		cache_read_input_tokens: totals?.cacheReadTokens ?? 0,
@@ -204,11 +204,11 @@ function createResultUsage(
 }
 
 /**
- * Convert the Cyrus inline MCP config (potentially containing in-process
+ * Convert the Kittu inline MCP config (potentially containing in-process
  * SDK servers) into the SDK's serializable McpServerConfig format. Skips
  * entries that aren't transportable.
  */
-function mapCyrusMcpToSdk(
+function mapKittuMcpToSdk(
 	mcpConfig: CursorRunnerConfig["mcpConfig"] | undefined,
 ): Record<string, CursorMcpServerConfig> {
 	const servers: Record<string, CursorMcpServerConfig> = {};
@@ -276,7 +276,7 @@ interface ToolProjection {
 
 /**
  * Project an SDK `tool_call` event into the Claude-shaped tool_use /
- * tool_result pair that the Cyrus formatter and timeline expect.
+ * tool_result pair that the Kittu formatter and timeline expect.
  *
  * MCP tool calls surface as the generic `name: "mcp"` in the SDK stream;
  * this inspects `args` to extract the actual `<server>:<tool>` and
@@ -473,7 +473,7 @@ export class CursorRunner extends EventEmitter implements IAgentRunner {
 			this.installPermissionsArtifacts(workspace);
 
 			// Test/CI fallback for environments where the SDK can't run.
-			if (process.env.CYRUS_CURSOR_MOCK === "1") {
+			if (process.env.KITTU_CURSOR_MOCK === "1") {
 				this.emitInitMessage();
 				this.pushAssistantText("Cursor mock session completed");
 				this.pendingResultMessage = this.createSuccessResultMessage(
@@ -485,14 +485,14 @@ export class CursorRunner extends EventEmitter implements IAgentRunner {
 
 			const apiKey = this.config.cursorApiKey ?? process.env.CURSOR_API_KEY;
 			const normalizedModel = normalizeCursorModel(this.config.model);
-			const mcpServers = mapCyrusMcpToSdk(this.config.mcpConfig);
+			const mcpServers = mapKittuMcpToSdk(this.config.mcpConfig);
 
 			const sandboxEnabled = Boolean(this.config.sandboxSettings?.enabled);
 			const baseAgentOptions = {
 				apiKey,
 				...(normalizedModel ? { model: { id: normalizedModel } } : {}),
 				local: {
-					// `cwd` is passed as a string[] per Cyrus convention; the SDK
+					// `cwd` is passed as a string[] per Kittu convention; the SDK
 					// types accept `string | string[]`.
 					cwd: [workspace],
 					settingSources: ["project" as const],
@@ -743,7 +743,7 @@ export class CursorRunner extends EventEmitter implements IAgentRunner {
 	}
 
 	private handleThinkingEvent(_event: CursorSDKThinkingMessage): void {
-		// cyrus-core's SDKAssistantMessage content blocks don't yet include
+		// kittu-core's SDKAssistantMessage content blocks don't yet include
 		// "thinking"; intentionally drop these to avoid invalid shapes.
 	}
 
@@ -774,21 +774,21 @@ export class CursorRunner extends EventEmitter implements IAgentRunner {
 		// server name (e.g. "linear") from the command/url that the
 		// `beforeMCPExecution` payload exposes — patterns like
 		// `Mcp(linear:save_comment)` only match when we provide that lookup.
-		const sdkMcpServers = mapCyrusMcpToSdk(this.config.mcpConfig);
-		const cfg: CyrusPermissionsConfig = buildCyrusPermissionsConfig({
+		const sdkMcpServers = mapKittuMcpToSdk(this.config.mcpConfig);
+		const cfg: KittuPermissionsConfig = buildKittuPermissionsConfig({
 			workspace,
 			allowedTools: this.config.allowedTools,
 			disallowedTools: this.config.disallowedTools,
 			mcpServers: sdkMcpServers,
 		});
 		writeFileSync(
-			join(cursorDir, "cyrus-permissions.json"),
+			join(cursorDir, "kittu-permissions.json"),
 			`${JSON.stringify(cfg, null, "\t")}\n`,
 			"utf8",
 		);
 
 		// 2. Permission helper script (copied from package's bundled .mjs)
-		const helperDst = join(cursorDir, "cyrus-permission-check.mjs");
+		const helperDst = join(cursorDir, "kittu-permission-check.mjs");
 		const helperSrc = this.locatePermissionCheckSource();
 		copyFileSync(helperSrc, helperDst);
 		try {
@@ -799,7 +799,7 @@ export class CursorRunner extends EventEmitter implements IAgentRunner {
 		const hooksPath = join(cursorDir, "hooks.json");
 		const existed = existsSync(hooksPath);
 		const backupPath = existed
-			? `${hooksPath}.cyrus-backup-${Date.now()}-${process.pid}`
+			? `${hooksPath}.kittu-backup-${Date.now()}-${process.pid}`
 			: null;
 		if (existed && backupPath) {
 			renameSync(hooksPath, backupPath);
@@ -808,16 +808,16 @@ export class CursorRunner extends EventEmitter implements IAgentRunner {
 			version: 1,
 			hooks: {
 				preToolUse: [
-					{ command: "./.cursor/cyrus-permission-check.mjs", failClosed: true },
+					{ command: "./.cursor/kittu-permission-check.mjs", failClosed: true },
 				],
 				beforeShellExecution: [
-					{ command: "./.cursor/cyrus-permission-check.mjs", failClosed: true },
+					{ command: "./.cursor/kittu-permission-check.mjs", failClosed: true },
 				],
 				beforeReadFile: [
-					{ command: "./.cursor/cyrus-permission-check.mjs", failClosed: true },
+					{ command: "./.cursor/kittu-permission-check.mjs", failClosed: true },
 				],
 				beforeMCPExecution: [
-					{ command: "./.cursor/cyrus-permission-check.mjs", failClosed: true },
+					{ command: "./.cursor/kittu-permission-check.mjs", failClosed: true },
 				],
 			},
 		};
@@ -830,14 +830,14 @@ export class CursorRunner extends EventEmitter implements IAgentRunner {
 		this.permissionsArtifactsInstalled = true;
 
 		console.log(
-			`[CursorRunner] Installed Cyrus permission hooks at ${hooksPath} (allow=${cfg.allow.length}, deny=${cfg.deny.length}, backup=${backupPath ? "yes" : "no"})`,
+			`[CursorRunner] Installed Kittu permission hooks at ${hooksPath} (allow=${cfg.allow.length}, deny=${cfg.deny.length}, backup=${backupPath ? "yes" : "no"})`,
 		);
 
 		// 4. Sandbox policy file (only when sandbox is enabled). Cursor's
 		// `local.sandboxOptions.enabled: true` engages Apple Seatbelt /
 		// Linux Landlock; the policy below extends the default
 		// `workspace_readwrite` profile with allow/deny lists translated
-		// from the Cyrus / Claude SandboxSettings shape.
+		// from the Kittu / Claude SandboxSettings shape.
 		this.installSandboxArtifacts(workspace);
 	}
 
@@ -854,7 +854,7 @@ export class CursorRunner extends EventEmitter implements IAgentRunner {
 		const sandboxPath = join(cursorDir, "sandbox.json");
 		const existed = existsSync(sandboxPath);
 		const backupPath = existed
-			? `${sandboxPath}.cyrus-backup-${Date.now()}-${process.pid}`
+			? `${sandboxPath}.kittu-backup-${Date.now()}-${process.pid}`
 			: null;
 		if (existed && backupPath) {
 			renameSync(sandboxPath, backupPath);
@@ -926,7 +926,7 @@ export class CursorRunner extends EventEmitter implements IAgentRunner {
 		const pkgRoot = join(here, "..", "src", "permission-check.mjs");
 		if (existsSync(pkgRoot)) return pkgRoot;
 		throw new Error(
-			"[CursorRunner] could not locate cyrus permission-check.mjs helper",
+			"[CursorRunner] could not locate kittu permission-check.mjs helper",
 		);
 	}
 
@@ -935,8 +935,8 @@ export class CursorRunner extends EventEmitter implements IAgentRunner {
 		if (!this.permissionsArtifactsInstalled) return;
 		const workspace = resolve(this.config.workingDirectory || cwd());
 		const cursorDir = join(workspace, ".cursor");
-		const cfgPath = join(cursorDir, "cyrus-permissions.json");
-		const helperPath = join(cursorDir, "cyrus-permission-check.mjs");
+		const cfgPath = join(cursorDir, "kittu-permissions.json");
+		const helperPath = join(cursorDir, "kittu-permission-check.mjs");
 
 		try {
 			if (existsSync(cfgPath)) unlinkSync(cfgPath);
@@ -1088,7 +1088,7 @@ export class CursorRunner extends EventEmitter implements IAgentRunner {
 
 	private setupLogging(sessionId: string): void {
 		try {
-			const logsDir = join(this.config.cyrusHome, "logs");
+			const logsDir = join(this.config.kittuHome, "logs");
 			mkdirSync(logsDir, { recursive: true });
 			const stream = createWriteStream(
 				join(logsDir, `cursor-${sessionId}.jsonl`),

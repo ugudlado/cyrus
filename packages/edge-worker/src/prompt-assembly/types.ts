@@ -7,12 +7,12 @@
 
 import type {
 	BaseBranchResolution,
-	CyrusAgentSession,
 	GuidanceRule,
 	Issue,
+	KittuAgentSession,
 	RepositoryConfig,
 	WebhookAgentSession,
-} from "cyrus-core";
+} from "kittu-core";
 
 /**
  * Output structure from buildPrompt - contains everything needed to start a Claude session
@@ -64,8 +64,8 @@ export type PromptType =
  */
 export interface PromptAssemblyInput {
 	// ===== Session Context =====
-	/** The Cyrus agent session */
-	session: CyrusAgentSession;
+	/** The Kittu agent session */
+	session: KittuAgentSession;
 
 	/** Full issue details */
 	fullIssue: Issue;

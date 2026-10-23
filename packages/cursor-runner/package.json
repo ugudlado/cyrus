@@ -1,7 +1,7 @@
 {
-	"name": "cyrus-cursor-runner",
+	"name": "kittu-cursor-runner",
 	"version": "0.2.74",
-	"description": "Cursor Agent CLI process wrapper for Cyrus",
+	"description": "Cursor Agent CLI process wrapper for Kittu",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/cyrusagents/cyrus.git",
@@ -22,8 +22,8 @@
 	},
 	"dependencies": {
 		"@cursor/sdk": "^1.0.19",
-		"cyrus-core": "workspace:*",
-		"cyrus-simple-agent-runner": "workspace:*"
+		"kittu-core": "workspace:*",
+		"kittu-simple-agent-runner": "workspace:*"
 	},
 	"devDependencies": {
 		"@types/node": "^20.0.0",

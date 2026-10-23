@@ -1,11 +1,11 @@
 import type {
-	CyrusAgentSession,
 	EdgeWorkerConfig,
 	ILogger,
+	KittuAgentSession,
 	RepositoryConfig,
 	RunnerType,
-} from "cyrus-core";
-import { validateAllowedRunners } from "cyrus-core";
+} from "kittu-core";
+import { validateAllowedRunners } from "kittu-core";
 import { describe, expect, it, vi } from "vitest";
 import { RunnerConfigBuilder } from "../src/RunnerConfigBuilder.js";
 import { RunnerSelectionService } from "../src/RunnerSelectionService.js";
@@ -135,7 +135,7 @@ describe("RunnerConfigBuilder honours allowedRunners (issue, PR and child sessio
 			issue: { identifier: "ENG-1" },
 			workspace: { path: "/w/ENG-1", isGitWorktree: true },
 			...session,
-		} as unknown as CyrusAgentSession,
+		} as unknown as KittuAgentSession,
 		repository: {
 			id: "r",
 			name: "r",
@@ -147,7 +147,7 @@ describe("RunnerConfigBuilder honours allowedRunners (issue, PR and child sessio
 		allowedTools: [],
 		allowedDirectories: [],
 		disallowedTools: [],
-		cyrusHome: "/tmp/home",
+		kittuHome: "/tmp/home",
 		linearWorkspaceId: "ws",
 		logger: logger(),
 		onMessage: () => {},
@@ -198,7 +198,7 @@ describe("RunnerConfigBuilder honours allowedRunners (issue, PR and child sessio
 				workspaceName: "w",
 				systemPrompt: "t",
 				sessionId: "s",
-				cyrusHome: "/tmp/home",
+				kittuHome: "/tmp/home",
 				platformName: "slack",
 				logger: logger(),
 				onMessage: () => {},
@@ -223,7 +223,7 @@ describe("RunnerConfigBuilder honours allowedRunners (issue, PR and child sessio
 			workspaceName: "w",
 			systemPrompt: "t",
 			sessionId: "s",
-			cyrusHome: "/tmp/home",
+			kittuHome: "/tmp/home",
 			platformName: "slack",
 			logger: logger(),
 			onMessage: () => {},

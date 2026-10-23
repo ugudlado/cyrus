@@ -2,7 +2,7 @@ import {
 	CodexEventMapper,
 	CodexRunner,
 	type MapperContext,
-} from "cyrus-codex-runner";
+} from "kittu-codex-runner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSessionManager } from "../src/AgentSessionManager";
 import type { IActivitySink } from "../src/sinks/IActivitySink";
@@ -29,11 +29,11 @@ describe("AgentSessionManager - Codex tool activity mapping", () => {
 		// render tool activities; the event→message mapping itself is driven
 		// directly through CodexEventMapper.
 		const runner = new CodexRunner({
-			workingDirectory: "/Users/connor/code/cyrus",
+			workingDirectory: "/Users/connor/code/kittu",
 		});
 
 		const ctx: MapperContext = {
-			workingDirectory: "/Users/connor/code/cyrus",
+			workingDirectory: "/Users/connor/code/kittu",
 			model: "gpt-5.5",
 			getSessionId: () => "codex-session-1",
 			getStagedSkillNames: () => [],
@@ -43,7 +43,7 @@ describe("AgentSessionManager - Codex tool activity mapping", () => {
 		mapper = new CodexEventMapper(ctx);
 		mapper.reset();
 
-		manager.createCyrusAgentSession(
+		manager.createKittuAgentSession(
 			sessionId,
 			issueId,
 			{
@@ -54,7 +54,7 @@ describe("AgentSessionManager - Codex tool activity mapping", () => {
 				branchName: "test-branch",
 			},
 			{
-				path: "/Users/connor/code/cyrus",
+				path: "/Users/connor/code/kittu",
 				isGitWorktree: false,
 			},
 		);
@@ -70,7 +70,7 @@ describe("AgentSessionManager - Codex tool activity mapping", () => {
 				type: "file_change",
 				changes: [
 					{
-						path: "/Users/connor/code/cyrus/packages/core/src/index.ts",
+						path: "/Users/connor/code/kittu/packages/core/src/index.ts",
 						kind: "update",
 					},
 				],

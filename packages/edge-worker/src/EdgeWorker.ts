@@ -5,25 +5,26 @@ import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join, sep } from "node:path";
 import { LinearClient } from "@linear/sdk";
+import { Sessions, streamableHttp } from "fastify-mcp";
 import type {
 	McpServerConfig,
 	SDKMessage,
 	SessionStore,
 	WarmQuery,
-} from "cyrus-claude-runner";
+} from "kittu-claude-runner";
 import {
 	buildBaseSessionEnv,
 	ClaudeRunner,
 	HttpSessionStore,
 	normalizeMcpHttpTransport,
-} from "cyrus-claude-runner";
-import { getCyrusAppUrl } from "cyrus-cloudflare-tunnel-client";
-import { CodexRunner } from "cyrus-codex-runner";
+} from "kittu-claude-runner";
+import { getKittuAppUrl } from "kittu-cloudflare-tunnel-client";
+import { CodexRunner } from "kittu-codex-runner";
 import {
 	ConfigUpdater,
 	ensureGhTokenResolver,
 	ensureGitHubCredentialHelper,
-} from "cyrus-config-updater";
+} from "kittu-config-updater";
 import type {
 	AgentActivityCreateInput,
 	AgentEvent,
@@ -32,7 +33,6 @@ import type {
 	AgentSessionPromptedWebhook,
 	BaseBranchResolution,
 	ContentUpdateMessage,
-	CyrusAgentSession,
 	EdgeWorkerConfig,
 	GuidanceRule,
 	IAgentRunner,
@@ -44,6 +44,7 @@ import type {
 	IssueStateChangeMessage,
 	IssueUnassignedWebhook,
 	IssueUpdateWebhook,
+	KittuAgentSession,
 	RepositoryConfig,
 	RunnerType,
 	SerializableEdgeWorkerState,
@@ -54,7 +55,7 @@ import type {
 	Webhook,
 	WebhookAgentSession,
 	WebhookIssue,
-} from "cyrus-core";
+} from "kittu-core";
 import {
 	CLIIssueTrackerService,
 	CLIRPCServer,
@@ -85,9 +86,9 @@ import {
 	validateAllowedRunners,
 	validateTenants,
 	WebhookIpValidator,
-} from "cyrus-core";
-import { CursorRunner } from "cyrus-cursor-runner";
-import { GeminiRunner } from "cyrus-gemini-runner";
+} from "kittu-core";
+import { CursorRunner } from "kittu-cursor-runner";
+import { GeminiRunner } from "kittu-gemini-runner";
 import {
 	extractCommentAuthor,
 	extractCommentBody,
@@ -107,14 +108,14 @@ import {
 	GitHubEventTransport,
 	type GitHubPushPayload,
 	type GitHubWebhookEvent,
-	hasCyrusCommentMarker,
+	hasKittuCommentMarker,
 	isCommentOnPullRequest,
 	isIssueCommentPayload,
 	isPullRequestReviewCommentPayload,
 	isPullRequestReviewPayload,
 	stripMention,
-} from "cyrus-github-event-transport";
-import type { GitLabWebhookEvent } from "cyrus-gitlab-event-transport";
+} from "kittu-github-event-transport";
+import type { GitLabWebhookEvent } from "kittu-gitlab-event-transport";
 import {
 	extractDiscussionId,
 	extractSessionKey as extractGitLabSessionKey,
@@ -132,30 +133,29 @@ import {
 	GitLabEventTransport,
 	isNoteOnMergeRequest,
 	stripMention as stripGitLabMention,
-} from "cyrus-gitlab-event-transport";
+} from "kittu-gitlab-event-transport";
 import {
 	LinearEventTransport,
 	LinearIssueTrackerService,
 	type LinearOAuthConfig,
-} from "cyrus-linear-event-transport";
+} from "kittu-linear-event-transport";
 import {
-	type CyrusToolsOptions,
 	createCodexMessagePublisher,
-	createCyrusToolsServer,
 	createFetchFailureModesClient,
+	createKittuToolsServer,
 	type FailureModesHttpClient,
+	type KittuToolsOptions,
 	type ResolvedSession,
-} from "cyrus-mcp-tools";
-import { OpenCodeRunner } from "cyrus-opencode-runner";
+} from "kittu-mcp-tools";
+import { OpenCodeRunner } from "kittu-opencode-runner";
 import {
 	SlackEventTransport,
 	type SlackWebhookEvent,
-} from "cyrus-slack-event-transport";
+} from "kittu-slack-event-transport";
 import {
 	ZulipEventTransport,
 	type ZulipWebhookEvent,
-} from "cyrus-zulip-event-transport";
-import { Sessions, streamableHttp } from "fastify-mcp";
+} from "kittu-zulip-event-transport";
 import { ActivityPoster } from "./ActivityPoster.js";
 import { AgentSessionManager } from "./AgentSessionManager.js";
 import { AskUserQuestionHandler } from "./AskUserQuestionHandler.js";
@@ -215,7 +215,7 @@ export declare interface EdgeWorker {
 	): boolean;
 }
 
-type CyrusToolsMcpContext = {
+type KittuToolsMcpContext = {
 	contextId?: string;
 };
 
@@ -264,7 +264,7 @@ export class EdgeWorker extends EventEmitter {
 	private configUpdater: ConfigUpdater | null = null; // Single config updater for configuration updates
 	private persistenceManager: PersistenceManager;
 	private sharedApplicationServer: SharedApplicationServer;
-	private cyrusHome: string;
+	private kittuHome: string;
 	private untrustedWorktree: boolean;
 	/** Per-org GitHub App installation tokens pushed by cyrus-hosted (lazy file-backed reads) */
 	private githubTokenStore: GitHubTokenStore;
@@ -295,25 +295,25 @@ export class EdgeWorker extends EventEmitter {
 	private promptBuilder: PromptBuilder;
 	private defaultSkillsDeployer: DefaultSkillsDeployer;
 	private skillsPluginResolver: SkillsPluginResolver;
-	private readonly cyrusToolsMcpEndpoint = "/mcp/cyrus-tools";
-	private cyrusToolsMcpRegistered = false;
-	private cyrusToolsMcpRequestContext =
-		new AsyncLocalStorage<CyrusToolsMcpContext>();
-	private cyrusToolsMcpSessions = new Sessions<any>();
+	private readonly kittuToolsMcpEndpoint = "/mcp/kittu-tools";
+	private kittuToolsMcpRegistered = false;
+	private kittuToolsMcpRequestContext =
+		new AsyncLocalStorage<KittuToolsMcpContext>();
+	private kittuToolsMcpSessions = new Sessions<any>();
 	/** Validates webhook source IPs against known provider allowlists */
 	private webhookIpValidator: WebhookIpValidator;
 	/** Egress proxy for sandbox network traffic filtering and header injection */
 	private egressProxy: EgressProxy | null = null;
 	/** Base SDK sandbox settings to pass to ClaudeRunner sessions (set when proxy starts) */
 	private sdkSandboxSettings:
-		| import("cyrus-claude-runner").SandboxSettings
+		| import("kittu-claude-runner").SandboxSettings
 		| null = null;
 	/** CA cert path for MITM TLS termination (passed per-session env, not process.env) */
 	private egressCaCertPath: string | null = null;
 	/**
-	 * Remote SessionStore that mirrors Claude SDK transcripts to the Cyrus
-	 * hosted control plane. Enabled when all three of `CYRUS_APP_URL`,
-	 * `CYRUS_API_KEY`, and `CYRUS_TEAM_ID` are set — used by any Claude
+	 * Remote SessionStore that mirrors Claude SDK transcripts to the Kittu
+	 * hosted control plane. Enabled when all three of `KITTU_APP_URL`,
+	 * `KITTU_API_KEY`, and `KITTU_TEAM_ID` are set — used by any Claude
 	 * runner spawned from this worker so transcripts survive ephemeral
 	 * worktrees and are resumable from any host.
 	 */
@@ -358,7 +358,7 @@ export class EdgeWorker extends EventEmitter {
 	 * passed verbatim to `fs.readFileSync` (which does not expand tildes).
 	 * Repository-scoped paths are normalized separately in addNew /
 	 * updateModified; this covers the platform-level MCP config lists that
-	 * cyrus-hosted writes with literal `~/.cyrus/...` prefixes when
+	 * cyrus-hosted writes with literal `~/.kittu/...` prefixes when
 	 * generating self-host config.
 	 */
 	private static normalizeConfigPaths(
@@ -402,7 +402,7 @@ export class EdgeWorker extends EventEmitter {
 			// single shared secret would silently turn tenant isolation off.
 			const isTrue = (name: string) =>
 				process.env[name]?.toLowerCase().trim() === "true";
-			const missing = ["LINEAR_DIRECT_WEBHOOKS", "CYRUS_HOST_EXTERNAL"].filter(
+			const missing = ["LINEAR_DIRECT_WEBHOOKS", "KITTU_HOST_EXTERNAL"].filter(
 				(name) => !isTrue(name),
 			);
 			if (missing.length > 0) {
@@ -421,25 +421,25 @@ export class EdgeWorker extends EventEmitter {
 				}
 			}
 		}
-		this.cyrusHome = config.cyrusHome;
-		this.githubTokenStore = new GitHubTokenStore(this.cyrusHome);
+		this.kittuHome = config.kittuHome;
+		this.githubTokenStore = new GitHubTokenStore(this.kittuHome);
 		this.logger = createLogger({ component: "EdgeWorker" });
 		this.persistenceManager = new PersistenceManager(
-			join(this.cyrusHome, "state"),
+			join(this.kittuHome, "state"),
 		);
 
 		// Mirror Claude SDK session transcripts to the hosted control plane
-		// when CYRUS_API_KEY (proof of team ownership) and CYRUS_TEAM_ID
+		// when KITTU_API_KEY (proof of team ownership) and KITTU_TEAM_ID
 		// (which team the transcripts belong to) are configured. The
-		// destination URL defaults to DEFAULT_CYRUS_APP_URL but can be
-		// overridden via CYRUS_APP_URL for preview environments. If either
+		// destination URL defaults to DEFAULT_KITTU_APP_URL but can be
+		// overridden via KITTU_APP_URL for preview environments. If either
 		// of the required vars is missing the store stays null and the SDK
 		// falls back to local JSONL only. Operators can also opt out
-		// explicitly by setting CYRUS_DISABLE_REMOTE_SESSION_STORE=1, which
+		// explicitly by setting KITTU_DISABLE_REMOTE_SESSION_STORE=1, which
 		// keeps transcripts local even when the vars above are present.
-		const sessionStoreBaseUrl = getCyrusAppUrl();
-		const sessionStoreApiKey = process.env.CYRUS_API_KEY;
-		const sessionStoreTeamId = process.env.CYRUS_TEAM_ID;
+		const sessionStoreBaseUrl = getKittuAppUrl();
+		const sessionStoreApiKey = process.env.KITTU_API_KEY;
+		const sessionStoreTeamId = process.env.KITTU_TEAM_ID;
 		const sessionStoreDisabled = this.isRemoteSessionStoreDisabled();
 		if (!sessionStoreDisabled && sessionStoreApiKey && sessionStoreTeamId) {
 			this.claudeSessionStore = new HttpSessionStore({
@@ -457,7 +457,7 @@ export class EdgeWorker extends EventEmitter {
 			sessionStoreTeamId
 		) {
 			this.logger.info(
-				"[SessionStore] Remote session store disabled via CYRUS_DISABLE_REMOTE_SESSION_STORE; transcripts will stay local.",
+				"[SessionStore] Remote session store disabled via KITTU_DISABLE_REMOTE_SESSION_STORE; transcripts will stay local.",
 			);
 		}
 
@@ -468,7 +468,7 @@ export class EdgeWorker extends EventEmitter {
 		// For Self-Managed GitLab the API base URL must be derived from the
 		// configured repos' gitlabUrl host; otherwise the service falls back to
 		// gitlab.com and 404s on every reply. Picks the first configured
-		// GitLab repo's host (single GitLab host per Cyrus instance).
+		// GitLab repo's host (single GitLab host per Kittu instance).
 		const firstGitlabRepo = config.repositories.find((r) => r.gitlabUrl);
 		let gitlabApiBaseUrl: string | undefined;
 		if (firstGitlabRepo?.gitlabUrl) {
@@ -528,11 +528,11 @@ export class EdgeWorker extends EventEmitter {
 		this.untrustedWorktree = isUntrustedWorktreeEnabled();
 		if (this.untrustedWorktree) {
 			this.logger.info(
-				"Untrusted-worktree mode enabled (CYRUS_UNTRUSTED_WORKTREE): repo hook scripts, worktree .env/.mcp.json and file-based Claude settings are ignored",
+				"Untrusted-worktree mode enabled (KITTU_UNTRUSTED_WORKTREE): repo hook scripts, worktree .env/.mcp.json and file-based Claude settings are ignored",
 			);
 		}
 		this.gitService = new GitService({
-			cyrusHome: this.cyrusHome,
+			kittuHome: this.kittuHome,
 			untrustedWorktree: this.untrustedWorktree,
 			// SECURITY: GitServiceOptions.gitEnv and gitAllowFileProtocol are test-only
 			// and must never be wired from config or env.
@@ -549,10 +549,10 @@ export class EdgeWorker extends EventEmitter {
 		});
 
 		// Initialize webhook IP validator
-		// Enabled by default in self-hosted mode (CYRUS_HOST_EXTERNAL=true),
+		// Enabled by default in self-hosted mode (KITTU_HOST_EXTERNAL=true),
 		// can be overridden with WEBHOOK_IP_VALIDATION=false to disable
 		const isExternalHost =
-			process.env.CYRUS_HOST_EXTERNAL?.toLowerCase().trim() === "true";
+			process.env.KITTU_HOST_EXTERNAL?.toLowerCase().trim() === "true";
 		const ipValidationEnv =
 			process.env.WEBHOOK_IP_VALIDATION?.toLowerCase().trim();
 		const ipValidationEnabled =
@@ -660,7 +660,7 @@ export class EdgeWorker extends EventEmitter {
 		// Initialize user access control with global and per-repository configs
 		const repoAccessConfigs = new Map<
 			string,
-			import("cyrus-core").UserAccessControlConfig | undefined
+			import("kittu-core").UserAccessControlConfig | undefined
 		>();
 		for (const repo of config.repositories) {
 			if (repo.isActive !== false) {
@@ -675,7 +675,7 @@ export class EdgeWorker extends EventEmitter {
 		// Initialize extracted service modules
 		this.attachmentService = new AttachmentService(
 			this.logger,
-			this.cyrusHome,
+			this.kittuHome,
 			this.config.linearWorkspaces || {},
 		);
 		this.runnerSelectionService = new RunnerSelectionService(
@@ -707,9 +707,9 @@ export class EdgeWorker extends EventEmitter {
 							getClient?: () => import("@linear/sdk").LinearClient;
 					  })
 					| undefined,
-			getCyrusToolsMcpUrl: () => this.getCyrusToolsMcpUrl(),
-			createCyrusToolsOptions: (parentSessionId) =>
-				this.createCyrusToolsOptions(parentSessionId),
+			getKittuToolsMcpUrl: () => this.getKittuToolsMcpUrl(),
+			createKittuToolsOptions: (parentSessionId) =>
+				this.createKittuToolsOptions(parentSessionId),
 		});
 		this.runnerConfigBuilder = new RunnerConfigBuilder(
 			this.toolPermissionResolver,
@@ -739,11 +739,11 @@ export class EdgeWorker extends EventEmitter {
 			tenantRegistry: this.tenantRegistry,
 		});
 		this.defaultSkillsDeployer = new DefaultSkillsDeployer(
-			this.cyrusHome,
+			this.kittuHome,
 			this.logger,
 		);
 		this.skillsPluginResolver = new SkillsPluginResolver(
-			this.cyrusHome,
+			this.kittuHome,
 			this.logger,
 		);
 
@@ -765,8 +765,8 @@ export class EdgeWorker extends EventEmitter {
 		// process restarted after the helper config was wiped.
 		if (existsSync(this.githubTokenStore.filePath)) {
 			try {
-				ensureGitHubCredentialHelper(this.cyrusHome);
-				ensureGhTokenResolver(this.cyrusHome);
+				ensureGitHubCredentialHelper(this.kittuHome);
+				ensureGhTokenResolver(this.kittuHome);
 				this.logger.info(
 					"✅ GitHub auth scripts configured from existing token store",
 				);
@@ -778,7 +778,7 @@ export class EdgeWorker extends EventEmitter {
 			}
 		}
 
-		// Deploy default skills to cyrusHome if not already present (one-time setup)
+		// Deploy default skills to kittuHome if not already present (one-time setup)
 		await this.defaultSkillsDeployer.ensureDeployed();
 
 		// Scaffold user skills plugin manifest if needed (one-time setup)
@@ -793,7 +793,7 @@ export class EdgeWorker extends EventEmitter {
 
 		// Pre-warm the 30 most recent Claude sessions in the background
 		// so their first query after restart has near-zero cold-start latency.
-		// Disabled by default; opt in with CYRUS_ENABLE_WARM_SESSIONS=1.
+		// Disabled by default; opt in with KITTU_ENABLE_WARM_SESSIONS=1.
 		if (this.isWarmSessionsEnabled()) {
 			this.warmupRecentSessions(30).catch((err) => {
 				this.logger.warn("Session warmup failed (non-fatal):", err);
@@ -837,7 +837,7 @@ export class EdgeWorker extends EventEmitter {
 			this.logger.info("🛡️  Sandbox egress proxy: starting...");
 			this.egressProxy = new EgressProxy(
 				this.config.sandbox,
-				this.cyrusHome,
+				this.kittuHome,
 				this.logger,
 			);
 			await this.egressProxy.start();
@@ -981,7 +981,7 @@ export class EdgeWorker extends EventEmitter {
 			// Get appropriate secret based on mode
 			const secret = useDirectWebhooks
 				? process.env.LINEAR_WEBHOOK_SECRET || ""
-				: process.env.CYRUS_API_KEY || "";
+				: process.env.KITTU_API_KEY || "";
 
 			this.linearEventTransport = new LinearEventTransport({
 				fastifyServer: this.sharedApplicationServer.getFastifyInstance(),
@@ -1033,8 +1033,8 @@ export class EdgeWorker extends EventEmitter {
 		// 3. Create and register ConfigUpdater (both platforms)
 		this.configUpdater = new ConfigUpdater(
 			this.sharedApplicationServer.getFastifyInstance(),
-			this.cyrusHome,
-			() => process.env.CYRUS_API_KEY || "",
+			this.kittuHome,
+			() => process.env.KITTU_API_KEY || "",
 		);
 
 		// Register config update routes
@@ -1042,14 +1042,14 @@ export class EdgeWorker extends EventEmitter {
 
 		this.logger.info("✅ Config updater registered");
 		this.logger.info(
-			"   Routes: /api/update/cyrus-config, /api/update/cyrus-env,",
+			"   Routes: /api/update/kittu-config, /api/update/kittu-env,",
 		);
 		this.logger.info(
 			"           /api/update/repository, /api/update/test-mcp, /api/update/configure-mcp",
 		);
 
-		// 3. Register MCP endpoint for cyrus-tools on the same Fastify server/port
-		await this.registerCyrusToolsMcpEndpoint();
+		// 3. Register MCP endpoint for kittu-tools on the same Fastify server/port
+		await this.registerKittuToolsMcpEndpoint();
 		// 4. Register /status endpoint for process activity monitoring
 		this.registerStatusEndpoint();
 
@@ -1082,7 +1082,7 @@ export class EdgeWorker extends EventEmitter {
 
 		fastify.get("/version", async (_request, reply) => {
 			return reply.status(200).send({
-				cyrus_cli_version: this.config.version ?? null,
+				kittu_cli_version: this.config.version ?? null,
 			});
 		});
 
@@ -1092,16 +1092,16 @@ export class EdgeWorker extends EventEmitter {
 
 	/**
 	 * Register the GitHub event transport for receiving forwarded GitHub webhooks from CYHOST.
-	 * This creates a /github-webhook endpoint that handles @cyrusagent mentions on GitHub PRs.
+	 * This creates a /github-webhook endpoint that handles @kittuagent mentions on GitHub PRs.
 	 */
 	private registerGitHubEventTransport(): void {
 		// Use direct GitHub signature verification only when BOTH:
 		// 1. GITHUB_WEBHOOK_SECRET is set (we have the secret to verify)
-		// 2. CYRUS_HOST_EXTERNAL is true (self-hosted: GitHub sends directly to us)
+		// 2. KITTU_HOST_EXTERNAL is true (self-hosted: GitHub sends directly to us)
 		// On cloud droplets, CYHOST forwards webhooks with Bearer token auth
 		// (it verifies the GitHub signature itself and doesn't forward the headers).
 		const isExternalHost =
-			process.env.CYRUS_HOST_EXTERNAL?.toLowerCase().trim() === "true";
+			process.env.KITTU_HOST_EXTERNAL?.toLowerCase().trim() === "true";
 		const hasGithubWebhookSecret =
 			process.env.GITHUB_WEBHOOK_SECRET != null &&
 			process.env.GITHUB_WEBHOOK_SECRET !== "";
@@ -1109,7 +1109,7 @@ export class EdgeWorker extends EventEmitter {
 		const verificationMode = useSignatureVerification ? "signature" : "proxy";
 		const secret = useSignatureVerification
 			? process.env.GITHUB_WEBHOOK_SECRET!
-			: process.env.CYRUS_API_KEY || "";
+			: process.env.KITTU_API_KEY || "";
 
 		this.gitHubEventTransport = new GitHubEventTransport({
 			fastifyServer: this.sharedApplicationServer.getFastifyInstance(),
@@ -1162,7 +1162,7 @@ export class EdgeWorker extends EventEmitter {
 		const appId = process.env.GITHUB_APP_ID;
 		const installationId = process.env.GITHUB_APP_INSTALLATION_ID;
 		if (appId && installationId) {
-			const pemPath = join(this.cyrusHome, "github-app.pem");
+			const pemPath = join(this.kittuHome, "github-app.pem");
 			this.gitHubAppTokenProvider = new GitHubAppTokenProvider({
 				appId,
 				installationId,
@@ -1185,7 +1185,7 @@ export class EdgeWorker extends EventEmitter {
 	 */
 	private registerGitLabEventTransport(): void {
 		const isExternalHost =
-			process.env.CYRUS_HOST_EXTERNAL?.toLowerCase().trim() === "true";
+			process.env.KITTU_HOST_EXTERNAL?.toLowerCase().trim() === "true";
 		const hasGitlabWebhookSecret =
 			process.env.GITLAB_WEBHOOK_SECRET != null &&
 			process.env.GITLAB_WEBHOOK_SECRET !== "";
@@ -1193,7 +1193,7 @@ export class EdgeWorker extends EventEmitter {
 		const verificationMode = useSignatureVerification ? "signature" : "proxy";
 		const secret = useSignatureVerification
 			? process.env.GITLAB_WEBHOOK_SECRET!
-			: process.env.CYRUS_API_KEY || "";
+			: process.env.KITTU_API_KEY || "";
 
 		this.gitLabEventTransport = new GitLabEventTransport({
 			fastifyServer: this.sharedApplicationServer.getFastifyInstance(),
@@ -1231,14 +1231,14 @@ export class EdgeWorker extends EventEmitter {
 	}
 
 	/**
-	 * Whether Cyrus should follow plain replies in a Slack thread it was
+	 * Whether Kittu should follow plain replies in a Slack thread it was
 	 * @mentioned in. Enabled by default; controlled by the per-team
 	 * `slackThreadFollowing` config toggle (Behaviours page) and force-disabled
-	 * by the `CYRUS_SLACK_THREAD_FOLLOWING_DISABLED` env kill-switch, which takes
+	 * by the `KITTU_SLACK_THREAD_FOLLOWING_DISABLED` env kill-switch, which takes
 	 * precedence over the toggle. When disabled, only @mentions are processed.
 	 */
 	private isSlackThreadFollowingEnabled(): boolean {
-		const envValue = (process.env.CYRUS_SLACK_THREAD_FOLLOWING_DISABLED ?? "")
+		const envValue = (process.env.KITTU_SLACK_THREAD_FOLLOWING_DISABLED ?? "")
 			.toLowerCase()
 			.trim();
 		if (envValue === "true" || envValue === "1" || envValue === "yes") {
@@ -1261,7 +1261,7 @@ export class EdgeWorker extends EventEmitter {
 		getPlatformMcpConfigOverrides: () => readonly string[] | undefined,
 	): ChatSessionHandlerDeps {
 		return {
-			cyrusHome: this.cyrusHome,
+			kittuHome: this.kittuHome,
 			chatRepositoryProvider,
 			runnerConfigBuilder: this.runnerConfigBuilder,
 			createRunner: (config, chatRunnerType) => {
@@ -1453,11 +1453,11 @@ export class EdgeWorker extends EventEmitter {
 	private registerSlackEventTransport(): void {
 		// Use direct Slack signature verification only when BOTH:
 		// 1. SLACK_SIGNING_SECRET is set (we have the secret to verify)
-		// 2. CYRUS_HOST_EXTERNAL is true (self-hosted: Slack sends directly to us)
+		// 2. KITTU_HOST_EXTERNAL is true (self-hosted: Slack sends directly to us)
 		// On cloud droplets, CYHOST forwards webhooks with Bearer token auth
 		// (it verifies the Slack signature itself and doesn't forward the headers).
 		const isExternalHost =
-			process.env.CYRUS_HOST_EXTERNAL?.toLowerCase().trim() === "true";
+			process.env.KITTU_HOST_EXTERNAL?.toLowerCase().trim() === "true";
 		const hasSlackSigningSecret =
 			process.env.SLACK_SIGNING_SECRET != null &&
 			process.env.SLACK_SIGNING_SECRET !== "";
@@ -1473,7 +1473,7 @@ export class EdgeWorker extends EventEmitter {
 		// Slack transport would see no repositories at all, so refuse it.
 		if (this.tenantRegistry.enabled && !useTenantSlack) {
 			this.logger.warn(
-				"Slack event transport not registered: tenants are configured but Slack is not in tenant mode (needs CYRUS_HOST_EXTERNAL=true and a slack section on a tenant; the shared SLACK_SIGNING_SECRET / CYRUS_API_KEY transport is not tenant-aware)",
+				"Slack event transport not registered: tenants are configured but Slack is not in tenant mode (needs KITTU_HOST_EXTERNAL=true and a slack section on a tenant; the shared SLACK_SIGNING_SECRET / KITTU_API_KEY transport is not tenant-aware)",
 			);
 			return;
 		}
@@ -1487,11 +1487,11 @@ export class EdgeWorker extends EventEmitter {
 
 		// Only managed teams (cloud or self-hosted, paired with cyrus-hosted)
 		// have a Behaviours page where automatic Slack thread listening can be
-		// turned off — CYRUS_API_KEY is proof of that pairing, so the
+		// turned off — KITTU_API_KEY is proof of that pairing, so the
 		// stop-listening prompt guidance is gated on it. Community members
 		// don't have the key (or the page).
-		const cyrusAppBaseUrl = process.env.CYRUS_API_KEY
-			? getCyrusAppUrl()
+		const kittuAppBaseUrl = process.env.KITTU_API_KEY
+			? getKittuAppUrl()
 			: undefined;
 		const slackAdapter = new SlackChatAdapter(
 			chatRepositoryProvider,
@@ -1500,7 +1500,7 @@ export class EdgeWorker extends EventEmitter {
 				// Resolved per event tenant when the prompt is built (and live).
 				repositoryRoutingContext: (tenantId) =>
 					this.chatRoutingContext(tenantId),
-				cyrusAppBaseUrl,
+				kittuAppBaseUrl,
 			},
 		);
 
@@ -1534,7 +1534,7 @@ export class EdgeWorker extends EventEmitter {
 			? ""
 			: useDirectSlackWebhooks
 				? process.env.SLACK_SIGNING_SECRET!
-				: process.env.CYRUS_API_KEY || "";
+				: process.env.KITTU_API_KEY || "";
 
 		this.slackEventTransport = new SlackEventTransport({
 			fastifyServer: this.sharedApplicationServer.getFastifyInstance(),
@@ -1663,12 +1663,12 @@ export class EdgeWorker extends EventEmitter {
 
 			const isPullRequestReview = isPullRequestReviewPayload(event.payload);
 
-			// Skip comments Cyrus posted itself. The author filter below cannot do
-			// this when Cyrus posts with a human's token, so every comment Cyrus
+			// Skip comments Kittu posted itself. The author filter below cannot do
+			// this when Kittu posts with a human's token, so every comment Kittu
 			// posts carries a hidden marker. Checked before any mention check.
-			if (hasCyrusCommentMarker(commentBody)) {
+			if (hasKittuCommentMarker(commentBody)) {
 				this.logger.info(
-					`Ignoring Cyrus-authored comment on ${repoFullName}#${prNumber}`,
+					`Ignoring Kittu-authored comment on ${repoFullName}#${prNumber}`,
 				);
 				return;
 			}
@@ -1761,24 +1761,24 @@ export class EdgeWorker extends EventEmitter {
 				const shouldReply = wasMentioned || isPullRequestReview;
 
 				if (shouldReply && reactionToken && prNumber) {
-					// Presence of CYRUS_API_KEY indicates this worker is paired with the
+					// Presence of KITTU_API_KEY indicates this worker is paired with the
 					// managed control plane (paid customer). Absence means the worker is
 					// running on the Community plan (self-managed config.json).
-					const isManagedCustomer = !!process.env.CYRUS_API_KEY;
+					const isManagedCustomer = !!process.env.KITTU_API_KEY;
 
 					const commonPreamble = [
-						`Cyrus received this webhook but has no repository configured for \`${repoFullName}\`, so no agent session was started.`,
+						`Kittu received this webhook but has no repository configured for \`${repoFullName}\`, so no agent session was started.`,
 						``,
 						`**Likely causes:**`,
-						`- The owner/org was **renamed or transferred** on GitHub. Webhooks are delivered under the current owner name, but Cyrus's stored repository URL still points at the old one. GitHub's web redirects don't apply to webhook payloads — the stored URL has to be updated explicitly.`,
+						`- The owner/org was **renamed or transferred** on GitHub. Webhooks are delivered under the current owner name, but Kittu's stored repository URL still points at the old one. GitHub's web redirects don't apply to webhook payloads — the stored URL has to be updated explicitly.`,
 						`- The stored repository URL has a typo (e.g. wrong org/owner) and doesn't match the repo this event came from.`,
-						`- The GitHub App / webhook is installed on a repo Cyrus isn't configured for at all.`,
+						`- The GitHub App / webhook is installed on a repo Kittu isn't configured for at all.`,
 						``,
 					];
 
 					const fix = isManagedCustomer
-						? `**What to do:** there's currently no self-serve way to update the stored repository URL on your plan — please reach out to Cyrus support and reference \`${repoFullName}\` and we'll reconcile it on the backend.`
-						: `**What to do:** open \`~/.cyrus/config.json\` on the worker and update the \`githubUrl\` of the relevant repository to \`https://github.com/${repoFullName}\`. The worker watches the config file and will pick up the change automatically. If this repo shouldn't be sending events to Cyrus at all, remove the GitHub App from it instead.`;
+						? `**What to do:** there's currently no self-serve way to update the stored repository URL on your plan — please reach out to Kittu support and reference \`${repoFullName}\` and we'll reconcile it on the backend.`
+						: `**What to do:** open \`~/.kittu/config.json\` on the worker and update the \`githubUrl\` of the relevant repository to \`https://github.com/${repoFullName}\`. The worker watches the config file and will pick up the change automatically. If this repo shouldn't be sending events to Kittu at all, remove the GitHub App from it instead.`;
 
 					this.gitHubCommentService
 						.postIssueComment({
@@ -1815,7 +1815,7 @@ export class EdgeWorker extends EventEmitter {
 								owner: extractRepoOwner(event),
 								repo: extractRepoName(event),
 								issueNumber: prNumber,
-								body: "Received your request. It is queued and will start after Cyrus finishes the current task on this PR.",
+								body: "Received your request. It is queued and will start after Kittu finishes the current task on this PR.",
 							})
 							.catch((err: unknown) => {
 								this.logger.warn(
@@ -1868,7 +1868,7 @@ export class EdgeWorker extends EventEmitter {
 
 			// For pull_request_review, the review body IS the task context (no mention to strip)
 			// For other events, strip the bot mention to get the task instructions
-			const mentionHandle = botUsername ? `@${botUsername}` : "@cyrusagent";
+			const mentionHandle = botUsername ? `@${botUsername}` : "@kittuagent";
 			const taskInstructions = isPullRequestReview
 				? commentBody ||
 					"A reviewer has requested changes on this PR. Read the review comments to understand what needs to be changed."
@@ -1927,7 +1927,7 @@ export class EdgeWorker extends EventEmitter {
 
 			// Create an internal agent session (no Linear session for GitHub)
 			const githubSessionId = `github-${event.deliveryId}`;
-			agentSessionManager.createCyrusAgentSession(
+			agentSessionManager.createKittuAgentSession(
 				githubSessionId,
 				sessionKey,
 				issueMinimal,
@@ -2392,7 +2392,7 @@ ${taskInstructions}
 - You are already checked out on the PR branch \`${branchRef}\`
 - Make changes directly to the code on this branch
 - After making changes, commit and push them to the branch
-- Do not submit GitHub reviews or post PR comments yourself (no \`gh pr review\`, \`gh pr comment\` or \`gh api\` comment calls); Cyrus posts your final response back to the PR
+- Do not submit GitHub reviews or post PR comments yourself (no \`gh pr review\`, \`gh pr comment\` or \`gh api\` comment calls); Kittu posts your final response back to the PR
 - Be concise in your responses as they will be posted back to the GitHub PR`;
 	}
 
@@ -2421,7 +2421,7 @@ ${reviewBody}
 - You are already checked out on the PR branch \`${branchRef}\`
 - Address all the reviewer's feedback and make the necessary changes
 - After making changes, commit and push them to the branch
-- Do not submit GitHub reviews or post PR comments yourself (no \`gh pr review\`, \`gh pr comment\` or \`gh api\` comment calls); Cyrus posts your final response back to the PR
+- Do not submit GitHub reviews or post PR comments yourself (no \`gh pr review\`, \`gh pr comment\` or \`gh api\` comment calls); Kittu posts your final response back to the PR
 - Respond with a concise summary of the changes you made`
 			: `## Instructions
 - The reviewer has requested changes but did not leave a summary comment
@@ -2429,7 +2429,7 @@ ${reviewBody}
 - You are already checked out on the PR branch \`${branchRef}\`
 - Address all the reviewer's feedback and make the necessary changes
 - After making changes, commit and push them to the branch
-- Do not submit GitHub reviews or post PR comments yourself (no \`gh pr review\`, \`gh pr comment\` or \`gh api\` comment calls); Cyrus posts your final response back to the PR
+- Do not submit GitHub reviews or post PR comments yourself (no \`gh pr review\`, \`gh pr comment\` or \`gh api\` comment calls); Kittu posts your final response back to the PR
 - Respond with a concise summary of the changes you made`;
 
 		return `You are working on a GitHub Pull Request that has received a change request review.
@@ -2616,7 +2616,7 @@ ${taskSection}`;
 			}
 
 			// Strip the bot mention to get the task instructions
-			const mentionHandle = botUsername ? `@${botUsername}` : "@cyrusagent";
+			const mentionHandle = botUsername ? `@${botUsername}` : "@kittuagent";
 			const taskInstructions = stripGitLabMention(noteBody, mentionHandle);
 
 			// Check for an existing multi-repo session that includes this repository
@@ -2684,7 +2684,7 @@ ${taskSection}`;
 
 			// Create an internal agent session (no Linear session for GitLab)
 			const gitlabSessionId = `gitlab-${Date.now()}`;
-			agentSessionManager.createCyrusAgentSession(
+			agentSessionManager.createKittuAgentSession(
 				gitlabSessionId,
 				sessionKey,
 				issueMinimal,
@@ -3058,7 +3058,7 @@ ${taskSection}`;
 	}
 
 	/**
-	 * Compute the current status of the Cyrus process
+	 * Compute the current status of the Kittu process
 	 * @returns "idle" if the process can be safely restarted, "busy" if work is in progress
 	 */
 	private computeStatus(): "idle" | "busy" {
@@ -3197,8 +3197,8 @@ ${taskSection}`;
 		this.linearEventTransport = null;
 		this.configUpdater = null;
 		this.mcpConfigService.clearAllContexts();
-		this.cyrusToolsMcpSessions.removeAllListeners();
-		this.cyrusToolsMcpRegistered = false;
+		this.kittuToolsMcpSessions.removeAllListeners();
+		this.kittuToolsMcpRegistered = false;
 
 		// Stop egress proxy
 		if (this.egressProxy) {
@@ -3242,7 +3242,7 @@ ${taskSection}`;
 			this.logger.info("🛡️  Sandbox egress proxy: starting (config change)...");
 			this.egressProxy = new EgressProxy(
 				newConfig.sandbox!,
-				this.cyrusHome,
+				this.kittuHome,
 				this.logger,
 			);
 			await this.egressProxy.start();
@@ -3318,7 +3318,7 @@ ${taskSection}`;
 					"🛡️  CA certificate is NOT trusted system-wide. To trust (requires sudo):",
 				);
 				this.logger.warn(
-					`🛡️  sudo cp ${certPath} /usr/local/share/ca-certificates/cyrus-egress-ca.crt && sudo update-ca-certificates`,
+					`🛡️  sudo cp ${certPath} /usr/local/share/ca-certificates/kittu-egress-ca.crt && sudo update-ca-certificates`,
 				);
 			}
 			if (systemWideCert) {
@@ -3330,14 +3330,14 @@ ${taskSection}`;
 	}
 
 	/**
-	 * Check whether the Cyrus egress proxy CA is trusted at the OS level.
+	 * Check whether the Kittu egress proxy CA is trusted at the OS level.
 	 * macOS: searches the System keychain. Linux: checks update-ca-certificates output.
 	 */
 	private isCertTrustedSystemWide(): boolean {
 		try {
 			if (process.platform === "darwin") {
 				execSync(
-					'security find-certificate -c "Cyrus Egress Proxy CA" /Library/Keychains/System.keychain',
+					'security find-certificate -c "Kittu Egress Proxy CA" /Library/Keychains/System.keychain',
 					{ stdio: "ignore" },
 				);
 				return true;
@@ -3345,7 +3345,7 @@ ${taskSection}`;
 			if (process.platform === "linux") {
 				// Check if our cert exists in the system CA certificates directory
 				execSync(
-					"test -f /usr/local/share/ca-certificates/cyrus-egress-ca.crt",
+					"test -f /usr/local/share/ca-certificates/kittu-egress-ca.crt",
 					{ stdio: "ignore" },
 				);
 				return true;
@@ -3664,7 +3664,7 @@ ${taskSection}`;
 										agentSessionId: session.externalSessionId,
 										content: {
 											type: "response",
-											body: `**Repository Removed from Configuration**\n\nThis repository (\`${repo.name}\`) has been removed from the Cyrus configuration. All active sessions for this repository have been stopped.\n\nIf you need to continue working on this issue, please contact your administrator to restore the repository configuration.`,
+											body: `**Repository Removed from Configuration**\n\nThis repository (\`${repo.name}\`) has been removed from the Kittu configuration. All active sessions for this repository have been stopped.\n\nIf you need to continue working on this issue, please contact your administrator to restore the repository configuration.`,
 										},
 									},
 									"repository removal",
@@ -3744,7 +3744,7 @@ ${taskSection}`;
 		});
 
 		// Log verbose webhook info if enabled
-		if (process.env.CYRUS_WEBHOOK_DEBUG === "true") {
+		if (process.env.KITTU_WEBHOOK_DEBUG === "true") {
 			this.logger.debug(
 				`Full webhook payload:`,
 				JSON.stringify(webhook, null, 2),
@@ -3782,7 +3782,7 @@ ${taskSection}`;
 				// Handle issue state changes — wake up parked sessions when blocking issues complete
 				await this.handleIssueStateChange(webhook);
 			} else {
-				if (process.env.CYRUS_WEBHOOK_DEBUG === "true") {
+				if (process.env.KITTU_WEBHOOK_DEBUG === "true") {
 					this.logger.debug(
 						`Unhandled webhook type: ${(webhook as any).action}`,
 					);
@@ -3822,7 +3822,7 @@ ${taskSection}`;
 		// TODO: When legacy handlers are removed, restore activeWebhookCount tracking here.
 
 		// Log verbose message info if enabled
-		if (process.env.CYRUS_WEBHOOK_DEBUG === "true") {
+		if (process.env.KITTU_WEBHOOK_DEBUG === "true") {
 			this.logger.debug(
 				`Internal message received: ${message.source}/${message.action}`,
 				JSON.stringify(message, null, 2),
@@ -3846,7 +3846,7 @@ ${taskSection}`;
 			} else {
 				// This branch should never be reached due to exhaustive type checking
 				// If it is reached, log the unexpected message for debugging
-				if (process.env.CYRUS_WEBHOOK_DEBUG === "true") {
+				if (process.env.KITTU_WEBHOOK_DEBUG === "true") {
 					const unexpectedMessage = message as InternalMessage;
 					this.logger.debug(
 						`Unhandled message action: ${unexpectedMessage.action}`,
@@ -4009,7 +4009,7 @@ ${taskSection}`;
 		}
 
 		// Build the set of repositories involved with this issue so per-repo
-		// cyrus-teardown.sh scripts (if present) can run before worktrees are
+		// kittu-teardown.sh scripts (if present) can run before worktrees are
 		// removed. Source-of-truth is the session manager: each session's
 		// repositoryId maps to a configured RepositoryConfig.
 		const repoIds = new Set<string>();
@@ -4125,7 +4125,7 @@ ${taskSection}`;
 	): Promise<void> {
 		// Check if issue update trigger is enabled (defaults to true if not set)
 		if (this.config.issueUpdateTrigger === false) {
-			if (process.env.CYRUS_WEBHOOK_DEBUG === "true") {
+			if (process.env.KITTU_WEBHOOK_DEBUG === "true") {
 				this.logger.debug(
 					"Issue update trigger is disabled, skipping issue content update",
 				);
@@ -4203,7 +4203,7 @@ ${taskSection}`;
 		// Find session(s) for this issue
 		const sessions = this.agentSessionManager.getSessionsByIssueId(issueId);
 		if (sessions.length === 0) {
-			if (process.env.CYRUS_WEBHOOK_DEBUG === "true") {
+			if (process.env.KITTU_WEBHOOK_DEBUG === "true") {
 				this.logger.debug(
 					`No sessions found for issue ${issueIdentifier} to receive update`,
 				);
@@ -4221,7 +4221,7 @@ ${taskSection}`;
 			}
 			const workspaceFolderName = basename(firstSession.workspace.path);
 			const attachmentsDir = join(
-				this.cyrusHome,
+				this.kittuHome,
 				workspaceFolderName,
 				"attachments",
 			);
@@ -4669,7 +4669,7 @@ ${taskSection}`;
 	}
 
 	/**
-	 * Create a new Cyrus agent session with all necessary setup
+	 * Create a new Kittu agent session with all necessary setup
 	 * @param sessionId The Linear agent activity session ID
 	 * @param issue Linear issue object
 	 * @param repositories Repository configurations (primary repo is repositories[0])
@@ -4677,7 +4677,7 @@ ${taskSection}`;
 	 * @param linearWorkspaceId Linear workspace ID (from webhook.organizationId)
 	 * @returns Object containing session details and setup information
 	 */
-	private async createCyrusAgentSession(
+	private async createKittuAgentSession(
 		sessionId: string,
 		issue: { id: string; identifier: string },
 		repositoriesOrSingle: RepositoryConfig | RepositoryConfig[],
@@ -4709,7 +4709,7 @@ ${taskSection}`;
 		// When adding new options here, always update the handler signature in config-types.ts
 		// AND the CLI's handler implementation in WorkerService.ts to pass them through.
 		this.logger.info(
-			`createCyrusAgentSession: passing baseBranchOverrides=${baseBranchOverrides ? `Map(size=${baseBranchOverrides.size}, keys=[${Array.from(baseBranchOverrides.keys()).join(",")}])` : "undefined"}, useCustomHandler=${!!this.config.handlers?.createWorkspace}`,
+			`createKittuAgentSession: passing baseBranchOverrides=${baseBranchOverrides ? `Map(size=${baseBranchOverrides.size}, keys=[${Array.from(baseBranchOverrides.keys()).join(",")}])` : "undefined"}, useCustomHandler=${!!this.config.handlers?.createWorkspace}`,
 		);
 		const workspace = this.config.handlers?.createWorkspace
 			? await this.config.handlers.createWorkspace(fullIssue, repositories, {
@@ -4745,7 +4745,7 @@ ${taskSection}`;
 				workspace.resolvedBaseBranches?.[repo.id]?.branch ?? repo.baseBranch,
 		}));
 
-		agentSessionManager.createCyrusAgentSession(
+		agentSessionManager.createKittuAgentSession(
 			sessionId,
 			issue.id,
 			issueMinimal,
@@ -4812,7 +4812,7 @@ ${taskSection}`;
 		// Pre-create attachments directory even if no attachments exist yet
 		const workspaceFolderName = basename(workspace.path);
 		const attachmentsDir = join(
-			this.cyrusHome,
+			this.kittuHome,
 			workspaceFolderName,
 			"attachments",
 		);
@@ -4820,7 +4820,7 @@ ${taskSection}`;
 
 		// Write Claude settings to disable co-authored-by attribution in the workspace.
 		// This uses the SDK's "local" settings source (loaded via settingSources: ["user", "project", "local"])
-		// to ensure Cyrus sessions don't add "Co-Authored-By: Claude" trailers to git commits.
+		// to ensure Kittu sessions don't add "Co-Authored-By: Claude" trailers to git commits.
 		await this.writeWorkspaceClaudeSettings(workspace.path);
 
 		// Build allowed directories list - always include attachments directory
@@ -4930,7 +4930,7 @@ ${taskSection}`;
 				);
 
 			if (routingResult.type === "none") {
-				if (process.env.CYRUS_WEBHOOK_DEBUG === "true") {
+				if (process.env.KITTU_WEBHOOK_DEBUG === "true") {
 					this.logger.info(
 						`No repository configured for webhook from workspace ${webhook.organizationId}`,
 					);
@@ -5001,7 +5001,7 @@ ${taskSection}`;
 		const { agentSession, guidance } = webhook;
 		const commentBody = agentSession.comment?.body;
 
-		// If this issue is a sub-issue of an issue Cyrus has a session on, link the
+		// If this issue is a sub-issue of an issue Kittu has a session on, link the
 		// two so the parent is resumed when this session completes. Done before the
 		// blocked-by check so a parked child is linked as well.
 		await this.linkChildSessionToParentIssueSession(
@@ -5126,7 +5126,7 @@ ${taskSection}`;
 		await this.postInstantAcknowledgment(sessionId, linearWorkspaceId);
 
 		// Create the session using the shared method (pass full repositories array)
-		const sessionData = await this.createCyrusAgentSession(
+		const sessionData = await this.createKittuAgentSession(
 			sessionId,
 			issue,
 			repositories,
@@ -5553,7 +5553,7 @@ ${taskSection}`;
 			);
 
 			// Create the session using the shared method with all repositories
-			const sessionData = await this.createCyrusAgentSession(
+			const sessionData = await this.createKittuAgentSession(
 				sessionId,
 				issue,
 				repositories,
@@ -5632,7 +5632,7 @@ ${taskSection}`;
 		// Always set up attachments directory, even if no attachments in current comment
 		const workspaceFolderName = basename(session.workspace.path);
 		const attachmentsDir = join(
-			this.cyrusHome,
+			this.kittuHome,
 			workspaceFolderName,
 			"attachments",
 		);
@@ -5842,7 +5842,7 @@ ${taskSection}`;
 				// All recovery attempts failed - post visible feedback
 				await this.agentSessionManager.createResponseActivity(
 					agentSessionId,
-					"I couldn't process your message because the session configuration was lost. Please create a new session by mentioning me (@cyrus) in a new comment with your prompt.",
+					"I couldn't process your message because the session configuration was lost. Please create a new session by mentioning me (@kittu) in a new comment with your prompt.",
 				);
 				this.logger.warn(
 					`Failed to recover repository for prompted webhook ${agentSessionId} - all fallback methods exhausted`,
@@ -5944,7 +5944,7 @@ ${taskSection}`;
 	 *
 	 * Skill scopes (persisted in `scope.json` sidecars by the config-updater)
 	 * match against:
-	 * - the active repository's Cyrus config ID,
+	 * - the active repository's Kittu config ID,
 	 * - the Linear team that owns the issue, and
 	 * - the Linear label IDs attached to the issue.
 	 *
@@ -5957,7 +5957,7 @@ ${taskSection}`;
 	private buildSkillSessionContext(
 		repository: RepositoryConfig,
 		fullIssue?: Issue,
-		session?: CyrusAgentSession,
+		session?: KittuAgentSession,
 	): SkillSessionContext {
 		const context: SkillSessionContext = {
 			repositoryId: repository.id,
@@ -5984,7 +5984,7 @@ ${taskSection}`;
 	 */
 	private resolveSkillRepoPaths(
 		repository: RepositoryConfig,
-		session?: CyrusAgentSession,
+		session?: KittuAgentSession,
 	): string[] {
 		const repoPaths = session?.workspace?.repoPaths;
 		if (repoPaths) {
@@ -6354,8 +6354,8 @@ ${taskSection}`;
 		return this.attachmentService.generateNewAttachmentManifest(result);
 	}
 
-	private async registerCyrusToolsMcpEndpoint(): Promise<void> {
-		if (this.cyrusToolsMcpRegistered) {
+	private async registerKittuToolsMcpEndpoint(): Promise<void> {
+		if (this.kittuToolsMcpRegistered) {
 			return;
 		}
 
@@ -6365,7 +6365,7 @@ ${taskSection}`;
 			typeof fastify.addHook !== "function"
 		) {
 			console.warn(
-				"[EdgeWorker] Skipping cyrus-tools MCP endpoint registration: Fastify instance does not support register/addHook",
+				"[EdgeWorker] Skipping kittu-tools MCP endpoint registration: Fastify instance does not support register/addHook",
 			);
 			return;
 		}
@@ -6379,7 +6379,7 @@ ${taskSection}`;
 						: "";
 			const requestPath = rawUrl.split("?")[0];
 
-			if (requestPath !== this.cyrusToolsMcpEndpoint) {
+			if (requestPath !== this.kittuToolsMcpEndpoint) {
 				done();
 				return;
 			}
@@ -6390,63 +6390,63 @@ ${taskSection}`;
 				)
 			) {
 				_reply.code(401).send({
-					error: "Unauthorized cyrus-tools MCP request",
+					error: "Unauthorized kittu-tools MCP request",
 				});
 				done();
 				return;
 			}
 
-			const rawContextHeader = request.headers?.["x-cyrus-mcp-context-id"];
+			const rawContextHeader = request.headers?.["x-kittu-mcp-context-id"];
 			const contextId = Array.isArray(rawContextHeader)
 				? rawContextHeader[0]
 				: rawContextHeader;
 
-			this.cyrusToolsMcpRequestContext.run({ contextId }, () => {
+			this.kittuToolsMcpRequestContext.run({ contextId }, () => {
 				done();
 			});
 		});
 
-		this.cyrusToolsMcpSessions.on("connected", (sessionId) => {
+		this.kittuToolsMcpSessions.on("connected", (sessionId) => {
 			console.log(
-				`[EdgeWorker] cyrus-tools MCP session connected: ${sessionId}`,
+				`[EdgeWorker] kittu-tools MCP session connected: ${sessionId}`,
 			);
 		});
 
-		this.cyrusToolsMcpSessions.on("terminated", (sessionId) => {
+		this.kittuToolsMcpSessions.on("terminated", (sessionId) => {
 			console.log(
-				`[EdgeWorker] cyrus-tools MCP session terminated: ${sessionId}`,
+				`[EdgeWorker] kittu-tools MCP session terminated: ${sessionId}`,
 			);
 		});
 
-		this.cyrusToolsMcpSessions.on("error", (error) => {
-			console.error("[EdgeWorker] cyrus-tools MCP session error:", error);
+		this.kittuToolsMcpSessions.on("error", (error) => {
+			console.error("[EdgeWorker] kittu-tools MCP session error:", error);
 		});
 
 		await fastify.register(streamableHttp, {
 			stateful: true,
-			mcpEndpoint: this.cyrusToolsMcpEndpoint,
-			sessions: this.cyrusToolsMcpSessions,
+			mcpEndpoint: this.kittuToolsMcpEndpoint,
+			sessions: this.kittuToolsMcpSessions,
 			createServer: async () => {
 				const contextId =
-					this.cyrusToolsMcpRequestContext.getStore()?.contextId;
+					this.kittuToolsMcpRequestContext.getStore()?.contextId;
 				if (!contextId) {
 					throw new Error(
-						"Missing x-cyrus-mcp-context-id header for cyrus-tools MCP request",
+						"Missing x-kittu-mcp-context-id header for kittu-tools MCP request",
 					);
 				}
 
 				const context = this.mcpConfigService.getContext(contextId);
 				if (!context) {
 					throw new Error(
-						`Unknown cyrus-tools MCP context '${contextId}'. Build MCP config before connecting.`,
+						`Unknown kittu-tools MCP context '${contextId}'. Build MCP config before connecting.`,
 					);
 				}
 
 				const sdkServer =
 					context.prebuiltServer ||
-					createCyrusToolsServer(
+					createKittuToolsServer(
 						context.linearClient,
-						this.createCyrusToolsOptions(context.parentSessionId),
+						this.createKittuToolsOptions(context.parentSessionId),
 					);
 				this.mcpConfigService.clearPrebuiltServer(contextId);
 
@@ -6454,9 +6454,9 @@ ${taskSection}`;
 			},
 		});
 
-		this.cyrusToolsMcpRegistered = true;
+		this.kittuToolsMcpRegistered = true;
 		console.log(
-			`✅ Cyrus tools MCP endpoint registered at ${this.cyrusToolsMcpEndpoint}`,
+			`✅ Kittu tools MCP endpoint registered at ${this.kittuToolsMcpEndpoint}`,
 		);
 	}
 
@@ -6464,19 +6464,19 @@ ${taskSection}`;
 
 	/**
 	 * Lazily build the HTTP client used by `log_failure_mode` to POST to
-	 * cyrus-hosted. Uses `CYRUS_APP_URL` (the same env var the remote
+	 * cyrus-hosted. Uses `KITTU_APP_URL` (the same env var the remote
 	 * session-store client reads, see top of this file) so preview
 	 * environments and prod share a single way to point at a control
-	 * plane. Returns null when either the URL or the `CYRUS_API_KEY` are
+	 * plane. Returns null when either the URL or the `KITTU_API_KEY` are
 	 * missing — in that mode the tool is simply not registered, so
 	 * customer-mode CLI users without a control plane don't see a broken
 	 * tool.
 	 */
 	private getFailureModesClient(): FailureModesHttpClient | null {
 		if (this.failureModesClient) return this.failureModesClient;
-		const apiKey = process.env.CYRUS_API_KEY?.trim();
+		const apiKey = process.env.KITTU_API_KEY?.trim();
 		if (!apiKey) return null;
-		const baseUrl = getCyrusAppUrl();
+		const baseUrl = getKittuAppUrl();
 		this.failureModesClient = createFetchFailureModesClient({
 			baseUrl,
 			apiKey,
@@ -6492,7 +6492,7 @@ ${taskSection}`;
 	 */
 	/**
 	 * Resolve a working-directory string to the rich session bundle a
-	 * Cyrus team member needs to triage a failure-mode report: the
+	 * Kittu team member needs to triage a failure-mode report: the
 	 * internal session id (for dedup), the runner session id + runner
 	 * type (so triage can pull the Claude/Gemini/Codex/Cursor transcript),
 	 * the Linear AgentSession + source-issue identifiers (so triage can
@@ -6516,7 +6516,7 @@ ${taskSection}`;
 	private workspaceBaseDirs(): string[] {
 		return [
 			...new Set([
-				getDefaultWorktreesDir(this.cyrusHome),
+				getDefaultWorktreesDir(this.kittuHome),
 				...Array.from(this.repositories.values()).map(
 					(repo) => repo.workspaceBaseDir,
 				),
@@ -6563,7 +6563,7 @@ ${taskSection}`;
 	 * cloned (after posting the error activity).
 	 */
 	private async ensureSessionClone(
-		session: CyrusAgentSession,
+		session: KittuAgentSession,
 		repository: RepositoryConfig,
 		linearWorkspaceId?: string,
 	): Promise<void> {
@@ -6689,11 +6689,11 @@ ${taskSection}`;
 				// A restored session keeps its legacy worktree until its next
 				// prompt replaces it (ensureSessionClone), like the sweep.
 				isInUse: (path) => this.isWorkspaceInUse(path),
-				discard: process.env.CYRUS_DISCARD_OLD_WORKTREES === "1",
+				discard: process.env.KITTU_DISCARD_OLD_WORKTREES === "1",
 			});
 			if (result.moved.length + result.dirty.length + result.invalid.length) {
 				this.logger.info(
-					`Legacy worktree cutover: set aside ${result.moved.length} (${result.invalid.length} with unverifiable pointers, moved unexamined); ${result.dirty.length} with uncommitted changes left in place (set CYRUS_DISCARD_OLD_WORKTREES=1 to set them aside too): ${result.dirty.join(", ")}`,
+					`Legacy worktree cutover: set aside ${result.moved.length} (${result.invalid.length} with unverifiable pointers, moved unexamined); ${result.dirty.length} with uncommitted changes left in place (set KITTU_DISCARD_OLD_WORKTREES=1 to set them aside too): ${result.dirty.join(", ")}`,
 				);
 			}
 		} catch (error) {
@@ -6721,7 +6721,7 @@ ${taskSection}`;
 		this.workspaceSweepTimer.unref?.();
 	}
 
-	private getAllKnownSessions(): CyrusAgentSession[] {
+	private getAllKnownSessions(): KittuAgentSession[] {
 		return [
 			...this.agentSessionManager.getAllSessions(),
 			...this.activeChatSessionHandlers.flatMap((handler) =>
@@ -6804,14 +6804,14 @@ ${taskSection}`;
 		};
 	}
 
-	private createCyrusToolsOptions(parentSessionId?: string): CyrusToolsOptions {
+	private createKittuToolsOptions(parentSessionId?: string): KittuToolsOptions {
 		const failureModesClient = this.getFailureModesClient();
-		const publisherKey = process.env.CYRUS_API_KEY?.trim();
-		const options: CyrusToolsOptions = {
+		const publisherKey = process.env.KITTU_API_KEY?.trim();
+		const options: KittuToolsOptions = {
 			parentSessionId,
 			postMessageToCodex: publisherKey
 				? createCodexMessagePublisher({
-						baseUrl: getCyrusAppUrl(),
+						baseUrl: getKittuAppUrl(),
 						apiKey: publisherKey,
 					})
 				: undefined,
@@ -6851,12 +6851,12 @@ ${taskSection}`;
 	}
 
 	/**
-	 * Link a newly created agent session to the most recent Cyrus session on its
+	 * Link a newly created agent session to the most recent Kittu session on its
 	 * parent issue, so that when this (child) session completes, the parent
 	 * session is resumed with the child's result.
 	 *
 	 * Parent-child *issue* relationships are the channel for child completion
-	 * messages. Any issue whose parent has a Cyrus session is linked, regardless
+	 * messages. Any issue whose parent has a Kittu session is linked, regardless
 	 * of whether that parent session is currently running: an orchestrator that
 	 * has halted to wait for its sub-issue has status "complete" and is exactly
 	 * the parent that must be woken, so this deliberately does not filter to
@@ -6865,7 +6865,7 @@ ${taskSection}`;
 	 * runner session id).
 	 *
 	 * This replaces the mapping that used to be established by the removed
-	 * `linear_agent_session_create*` cyrus-tools. Linear delegation creates
+	 * `linear_agent_session_create*` kittu-tools. Linear delegation creates
 	 * exactly one session per issue, so deriving the link from the issue
 	 * hierarchy does not reintroduce concurrent child sessions on one issue.
 	 *
@@ -6906,7 +6906,7 @@ ${taskSection}`;
 				this.agentSessionManager.getSessionsByIssueId(parentIssueId);
 			if (parentSessions.length === 0) {
 				log.debug(
-					`Parent issue ${parentIssueId} has no Cyrus session; no parent callback will be sent`,
+					`Parent issue ${parentIssueId} has no Kittu session; no parent callback will be sent`,
 				);
 				return;
 			}
@@ -7053,7 +7053,7 @@ ${taskSection}`;
 		return true;
 	}
 
-	private getCyrusToolsMcpUrl(): string {
+	private getKittuToolsMcpUrl(): string {
 		const server = this.sharedApplicationServer as {
 			getPort?: () => number;
 		};
@@ -7061,7 +7061,7 @@ ${taskSection}`;
 			typeof server.getPort === "function"
 				? server.getPort()
 				: this.config.serverPort || this.config.webhookPort || 3456;
-		return `http://127.0.0.1:${port}${this.cyrusToolsMcpEndpoint}`;
+		return `http://127.0.0.1:${port}${this.kittuToolsMcpEndpoint}`;
 	}
 
 	/**
@@ -7077,7 +7077,7 @@ ${taskSection}`;
 	 */
 	private async buildSessionPrompt(
 		isNewSession: boolean,
-		session: CyrusAgentSession,
+		session: KittuAgentSession,
 		fullIssue: Issue,
 		repository: RepositoryConfig,
 		promptBody: string,
@@ -7464,7 +7464,7 @@ ${input.userComment}
 	 * the feature is off (`githubTokenDir` unset).
 	 */
 	private buildGhTokenDirs(
-		session: CyrusAgentSession,
+		session: KittuAgentSession,
 		fallbackRepository: RepositoryConfig,
 	): string[] {
 		const root = this.config.githubTokenDir;
@@ -7497,7 +7497,7 @@ ${input.userComment}
 	 * Nothing here is read from the workspace.
 	 */
 	private buildGitSessionTargets(
-		session: CyrusAgentSession,
+		session: KittuAgentSession,
 		fallbackRepository: RepositoryConfig,
 	): GitSessionTarget[] {
 		const workspace = session.workspace;
@@ -7541,7 +7541,7 @@ ${input.userComment}
 	 * @returns Object containing the runner config and runner type to use
 	 */
 	private async buildAgentRunnerConfig(
-		session: CyrusAgentSession,
+		session: KittuAgentSession,
 		repository: RepositoryConfig,
 		sessionId: string,
 		systemPrompt: string | undefined,
@@ -7614,9 +7614,9 @@ ${input.userComment}
 					: this.config.githubMcpConfigs,
 			strictMcpConfig: this.config.strictMcpConfig,
 			linearWorkspaceId,
-			cyrusHome: this.cyrusHome,
+			kittuHome: this.kittuHome,
 			// Org-matched GitHub App installation token (pushed by cyrus-hosted):
-			// exposed to the session as GH_TOKEN / CYRUS_GH_TOKEN so `gh` and
+			// exposed to the session as GH_TOKEN / KITTU_GH_TOKEN so `gh` and
 			// other tools authenticate against this repo's org. Undefined when
 			// no token store entry matches — zero behavior change for self-host
 			// users without the token file.
@@ -7833,10 +7833,10 @@ ${input.userComment}
 	 * Warm sessions are an opt-in optimization that pre-spawns Claude Code
 	 * subprocesses on startup so the first query after a restart skips the
 	 * cold-start cost. Disabled by default; opt in by setting
-	 * `CYRUS_ENABLE_WARM_SESSIONS=1` (or `=true`).
+	 * `KITTU_ENABLE_WARM_SESSIONS=1` (or `=true`).
 	 */
 	private isWarmSessionsEnabled(): boolean {
-		const raw = process.env.CYRUS_ENABLE_WARM_SESSIONS;
+		const raw = process.env.KITTU_ENABLE_WARM_SESSIONS;
 		if (!raw) return false;
 		const v = raw.toLowerCase().trim();
 		return v === "1" || v === "true";
@@ -7845,14 +7845,14 @@ ${input.userComment}
 	/**
 	 * Whether the remote Claude session store is explicitly disabled.
 	 *
-	 * The remote store mirrors SDK transcripts to the Cyrus hosted control
-	 * plane and is on by default whenever `CYRUS_APP_URL`, `CYRUS_API_KEY`,
-	 * and `CYRUS_TEAM_ID` are all set. Operators can opt out — without
+	 * The remote store mirrors SDK transcripts to the Kittu hosted control
+	 * plane and is on by default whenever `KITTU_APP_URL`, `KITTU_API_KEY`,
+	 * and `KITTU_TEAM_ID` are all set. Operators can opt out — without
 	 * unsetting those vars (which other features depend on) — by setting
-	 * `CYRUS_DISABLE_REMOTE_SESSION_STORE=1` (or `=true`).
+	 * `KITTU_DISABLE_REMOTE_SESSION_STORE=1` (or `=true`).
 	 */
 	private isRemoteSessionStoreDisabled(): boolean {
-		const raw = process.env.CYRUS_DISABLE_REMOTE_SESSION_STORE;
+		const raw = process.env.KITTU_DISABLE_REMOTE_SESSION_STORE;
 		if (!raw) return false;
 		const v = raw.toLowerCase().trim();
 		return v === "1" || v === "true";
@@ -8163,7 +8163,7 @@ ${input.userComment}
 	 * 1. Check if runner is actively streaming
 	 * 2. Add to stream if streaming, OR resume session if not
 	 *
-	 * @param session The Cyrus agent session
+	 * @param session The Kittu agent session
 	 * @param repository Repository configuration
 	 * @param sessionId Linear agent activity session ID
 	 * @param agentSessionManager Agent session manager instance
@@ -8175,7 +8175,7 @@ ${input.userComment}
 	 * @returns true if message was added to stream, false if session was resumed
 	 */
 	private async handlePromptWithStreamingCheck(
-		session: CyrusAgentSession,
+		session: KittuAgentSession,
 		repository: RepositoryConfig,
 		sessionId: string,
 		agentSessionManager: AgentSessionManager,
@@ -8264,7 +8264,7 @@ ${input.userComment}
 	/**
 	 * Resume or create an Agent session with the given prompt
 	 * This is the core logic for handling prompted agent activities
-	 * @param session The Cyrus agent session
+	 * @param session The Kittu agent session
 	 * @param repository The repository configuration
 	 * @param sessionId The Linear agent session ID
 	 * @param agentSessionManager The agent session manager
@@ -8273,7 +8273,7 @@ ${input.userComment}
 	 * @param isNewSession Whether this is a new session
 	 */
 	async resumeAgentSession(
-		session: CyrusAgentSession,
+		session: KittuAgentSession,
 		repository: RepositoryConfig,
 		sessionId: string,
 		agentSessionManager: AgentSessionManager,
@@ -8374,7 +8374,7 @@ ${input.userComment}
 		// Set up attachments directory
 		const workspaceFolderName = basename(session.workspace.path);
 		const attachmentsDir = join(
-			this.cyrusHome,
+			this.kittuHome,
 			workspaceFolderName,
 			"attachments",
 		);
