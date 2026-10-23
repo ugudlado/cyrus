@@ -96,7 +96,11 @@ describe("GitService.createGitWorktree with a real remote branch", () => {
 		git(repo, "push -q origin main");
 		git(root, `clone -q "${origin}" "${other}"`);
 		vi.clearAllMocks();
-		service = new GitService({ cyrusHome: join(root, "home") }, logger);
+		// The fixture remote is a local path: allow the file protocol (tests only).
+		service = new GitService(
+			{ cyrusHome: join(root, "home"), gitAllowFileProtocol: true },
+			logger,
+		);
 	});
 
 	afterEach(() => {

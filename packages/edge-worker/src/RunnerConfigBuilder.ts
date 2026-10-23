@@ -1,4 +1,3 @@
-import { execSync } from "node:child_process";
 import { basename, join } from "node:path";
 import type {
 	HookCallbackMatcher,
@@ -19,8 +18,20 @@ import type {
 	RepositoryConfig,
 	RunnerType,
 } from "cyrus-core";
-import { buildIntentToAddHook } from "./hooks/IntentToAddHook.js";
-import { buildPrMarkerHook } from "./hooks/PrMarkerHook.js";
+import {
+	GitEnv,
+	type GitSessionTarget,
+	type ScopedGhTokenSource,
+	SessionGit,
+} from "./gitEnv.js";
+import {
+	buildIntentToAddHook,
+	DefaultIntentToAddGitClient,
+} from "./hooks/IntentToAddHook.js";
+import {
+	buildPrMarkerHook,
+	GitHubPrMarkerProvider,
+} from "./hooks/PrMarkerHook.js";
 import { appendBrowserUseAddendum } from "./prompts/browserUsePromptAddendum.js";
 import { appendCloudRuntimeAddendum } from "./prompts/cloudRuntimePromptAddendum.js";
 import { appendFailureModeAddendum } from "./prompts/failureModePromptAddendum.js";
@@ -141,6 +152,19 @@ export interface IssueRunnerConfigInput {
 	 * read-only grant would override the write grant.
 	 */
 	gitMetadataDirectories?: string[];
+	/**
+	 * One entry per git worktree of the session, from parent-owned data (the
+	 * workspace record and the configured repository). The parent-side hooks
+	 * (Stop guardrail, intent-to-add, PR marker) run git/gh only for a cwd
+	 * inside one of these, with location and config pinned by {@link GitEnv}.
+	 * Empty/absent: those hooks do not run git.
+	 */
+	gitTargets?: GitSessionTarget[];
+	/**
+	 * Mints App installation tokens scoped to one repository, for the parent's
+	 * `gh` PR-marker calls (after the token-store entry, before the env PAT).
+	 */
+	githubAppTokens?: ScopedGhTokenSource;
 	disallowedTools: string[];
 	resumeSessionId?: string;
 	labels?: string[];
@@ -244,14 +268,17 @@ export class RunnerConfigBuilder {
 	private mcpConfigProvider: IMcpConfigProvider;
 	private runnerSelector: IRunnerSelector;
 	private untrustedWorktree: boolean;
+	private gitEnv?: GitEnv;
+	private static warnedDefaultGitEnv = false;
 
 	constructor(
 		chatToolResolver: IChatToolResolver,
 		mcpConfigProvider: IMcpConfigProvider,
 		runnerSelector: IRunnerSelector,
-		options?: { untrustedWorktree?: boolean },
+		options?: { untrustedWorktree?: boolean; gitEnv?: GitEnv },
 	) {
 		this.untrustedWorktree = options?.untrustedWorktree ?? false;
+		this.gitEnv = options?.gitEnv;
 		this.chatToolResolver = chatToolResolver;
 		this.mcpConfigProvider = mcpConfigProvider;
 		this.runnerSelector = runnerSelector;
@@ -387,9 +414,31 @@ export class RunnerConfigBuilder {
 		// Configure hooks: PostToolUse for screenshot tools + PR-marker enforcement,
 		// plus the Stop hook that blocks the session when work is unshipped.
 		const screenshotHooks = this.buildScreenshotHooks(log);
-		const prMarkerHook = buildPrMarkerHook(log);
-		const intentToAddHook = buildIntentToAddHook(log);
-		const stopHook = this.buildStopHook(log);
+		if (!this.gitEnv && !RunnerConfigBuilder.warnedDefaultGitEnv) {
+			RunnerConfigBuilder.warnedDefaultGitEnv = true;
+			log.warn(
+				"RunnerConfigBuilder has no injected GitEnv; using defaults (no configured hooks dir, credential helper or gh binary)",
+			);
+		}
+		const gitEnv = this.gitEnv ?? new GitEnv({ cyrusHome: input.cyrusHome });
+		const sessionGit = new SessionGit(gitEnv, input.gitTargets ?? [], log);
+		// gh authenticates with an explicit token, never one derived from the
+		// workspace: the org-matched installation token, else the repository's
+		// own token file (path from the configured repository), else the PAT
+		// tier. The GitLab MR marker is not registered until it is converted.
+		const prMarkerHook = buildPrMarkerHook(log, [
+			new GitHubPrMarkerProvider((cwd) =>
+				sessionGit.ghContextFor(cwd, {
+					appTokens: input.githubAppTokens,
+					envToken: process.env.GITHUB_TOKEN || process.env.GH_TOKEN,
+				}),
+			),
+		]);
+		const intentToAddHook = buildIntentToAddHook(
+			log,
+			new DefaultIntentToAddGitClient(sessionGit),
+		);
+		const stopHook = this.buildStopHook(log, sessionGit);
 		const hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {
 			...stopHook,
 			PostToolUse: [
@@ -638,8 +687,9 @@ export class RunnerConfigBuilder {
 	 */
 	private buildStopHook(
 		log: ILogger,
+		sessionGit?: SessionGit,
 	): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
-		return buildStopHook(log);
+		return buildStopHook(log, sessionGit);
 	}
 
 	private runnerSupportsManagedSkills(runnerType: RunnerType): boolean {
@@ -821,6 +871,7 @@ export class RunnerConfigBuilder {
  */
 export function buildStopHook(
 	log: ILogger,
+	sessionGit?: SessionGit,
 ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
 	return {
 		Stop: [
@@ -835,7 +886,11 @@ export function buildStopHook(
 							return {};
 						}
 
-						const guardrail = inspectGitGuardrail(stopInput.cwd, log);
+						const guardrail = inspectGitGuardrail(
+							stopInput.cwd,
+							log,
+							sessionGit,
+						);
 						if (!guardrail) {
 							return {};
 						}
@@ -863,14 +918,20 @@ export function buildStopHook(
  * `git add --intent-to-add` by `IntentToAddHook` so they still show as a
  * tracked diff and block the stop when left uncommitted.
  */
-export function inspectGitGuardrail(cwd: string, log: ILogger): string | null {
-	const runGit = (args: string): string => {
-		return execSync(`git ${args}`, {
-			cwd,
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "ignore"],
-		}).trim();
-	};
+export function inspectGitGuardrail(
+	cwd: string,
+	log: ILogger,
+	sessionGit?: SessionGit,
+): string | null {
+	// Git runs only under the parent-pinned location and config (GitEnv);
+	// without a trusted target for `cwd` the stop is not blocked.
+	const inv = sessionGit?.invocationFor(cwd);
+	if (!sessionGit || !inv) {
+		log.debug("PR guardrail: skipping (no trusted git target for cwd)");
+		return null;
+	}
+	const runGit = (args: string): string =>
+		sessionGit.gitEnv.run(inv, args.split(" ")).trim();
 
 	let status: string;
 	try {

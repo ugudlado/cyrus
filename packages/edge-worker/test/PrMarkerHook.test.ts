@@ -91,6 +91,14 @@ describe("GitHubPrMarkerProvider.matches", () => {
 	});
 });
 
+describe("GitLabMrMarkerProvider (disabled until converted)", () => {
+	it("ensureMarker runs nothing", () => {
+		const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn() };
+		new GitLabMrMarkerProvider().ensureMarker("/tmp", log as never);
+		expect(log.warn).not.toHaveBeenCalled();
+	});
+});
+
 describe("GitLabMrMarkerProvider.matches", () => {
 	const provider = new GitLabMrMarkerProvider();
 

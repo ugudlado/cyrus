@@ -76,6 +76,10 @@ const RELOAD_EXEMPT_KEYS = [
 	"linearWorkspaceSlug",
 	"defaultAllowedTools",
 	"tenants",
+	// Startup-only: GitService/GitEnv are built once from the startup config.
+	"gitHooksDir",
+	"gitCredentialHelper",
+	"ghBinary",
 ] as const satisfies readonly (keyof EdgeConfig)[];
 
 /**

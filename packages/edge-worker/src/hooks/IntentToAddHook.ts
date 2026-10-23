@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import type {
 	HookCallbackMatcher,
@@ -6,6 +5,7 @@ import type {
 	PostToolUseHookInput,
 } from "cyrus-claude-runner";
 import type { ILogger } from "cyrus-core";
+import type { SessionGit } from "../gitEnv.js";
 
 /**
  * Tool names whose successful invocation may have produced a brand-new file
@@ -39,13 +39,29 @@ export interface IntentToAddGitClient {
  * environment must not turn the hook into an error.
  */
 export class DefaultIntentToAddGitClient implements IntentToAddGitClient {
+	/**
+	 * @param sessionGit Resolver of parent-pinned git invocations for the
+	 *   session's worktrees. Without it every git check fails closed (the hook
+	 *   is a no-op): git is never run with discovery from the workspace.
+	 */
+	constructor(private sessionGit?: SessionGit) {}
+
+	private git(cwd: string, args: string[]): void {
+		const inv = this.sessionGit?.invocationFor(cwd);
+		if (!inv || !this.sessionGit) {
+			throw new Error("no pinned git invocation");
+		}
+		this.sessionGit.gitEnv.run(inv, args);
+	}
+
 	isGitRepo(cwd: string): boolean {
 		try {
-			execFileSync("git", ["rev-parse", "--is-inside-work-tree"], {
-				cwd,
-				stdio: ["ignore", "ignore", "ignore"],
-			});
-			return true;
+			const inv = this.sessionGit?.invocationFor(cwd);
+			if (!inv || !this.sessionGit) return false;
+			const gitDir = this.sessionGit.gitEnv
+				.run(inv, ["rev-parse", "--absolute-git-dir"])
+				.trim();
+			return gitDir === inv.env.GIT_DIR;
 		} catch {
 			return false;
 		}
@@ -61,10 +77,7 @@ export class DefaultIntentToAddGitClient implements IntentToAddGitClient {
 
 	isIgnored(cwd: string, path: string): boolean {
 		try {
-			execFileSync("git", ["check-ignore", "-q", "--", path], {
-				cwd,
-				stdio: ["ignore", "ignore", "ignore"],
-			});
+			this.git(cwd, ["check-ignore", "-q", "--", path]);
 			return true;
 		} catch {
 			return false;
@@ -73,10 +86,7 @@ export class DefaultIntentToAddGitClient implements IntentToAddGitClient {
 
 	isTracked(cwd: string, path: string): boolean {
 		try {
-			execFileSync("git", ["ls-files", "--error-unmatch", "--", path], {
-				cwd,
-				stdio: ["ignore", "ignore", "ignore"],
-			});
+			this.git(cwd, ["ls-files", "--error-unmatch", "--", path]);
 			return true;
 		} catch {
 			return false;
@@ -84,10 +94,7 @@ export class DefaultIntentToAddGitClient implements IntentToAddGitClient {
 	}
 
 	intentToAdd(cwd: string, path: string): void {
-		execFileSync("git", ["add", "--intent-to-add", "--", path], {
-			cwd,
-			stdio: ["ignore", "ignore", "ignore"],
-		});
+		this.git(cwd, ["add", "--intent-to-add", "--", path]);
 	}
 }
 

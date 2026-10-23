@@ -1,6 +1,7 @@
 import { execSync, spawn } from "node:child_process";
 import {
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	readdirSync,
 	readFileSync,
@@ -19,6 +20,12 @@ import type {
 	Workspace,
 } from "cyrus-core";
 import { createLogger, getDefaultWorktreesDir, type ILogger } from "cyrus-core";
+import {
+	GitEnv,
+	GitEnvError,
+	type GitInvocation,
+	isPlainComponent,
+} from "./gitEnv.js";
 import { WorktreeIncludeService } from "./WorktreeIncludeService.js";
 
 export interface CreateGitWorktreeOptions {
@@ -46,6 +53,16 @@ export interface GitServiceOptions {
 	 * script is unaffected.
 	 */
 	untrustedWorktree?: boolean;
+	/** Empty dir pinned as core.hooksPath for every parent git call. */
+	gitHooksDir?: string;
+	/** Credential helper injected into the parent's network git calls. */
+	gitCredentialHelper?: string;
+	/** Absolute path of the real gh (PR marker hook). */
+	ghBinary?: string;
+	/** Tests only: also allow the `file` protocol for local fixture remotes. */
+	gitAllowFileProtocol?: boolean;
+	/** Tests only: replace the git env (unit tests that stub the git process). */
+	gitEnv?: GitEnv;
 }
 
 export interface DeleteWorktreeOptions {
@@ -96,6 +113,26 @@ interface NodeExecError {
 
 function isNodeExecError(value: unknown): value is NodeExecError {
 	return typeof value === "object" && value !== null;
+}
+
+/**
+ * Loggable summary of a failed git call. The raw error message of
+ * execFileSync contains the full argv (which holds the remote URL), so only
+ * the exit status and a trimmed stderr are logged.
+ */
+function describeGitError(e: unknown): string {
+	if (e instanceof GitEnvError) return e.message;
+	const x = e as {
+		status?: number | null;
+		stderr?: Buffer | string;
+		message?: string;
+	};
+	if (x && (x.status !== undefined || x.stderr !== undefined)) {
+		const stderr = (x.stderr?.toString() ?? "").trim().slice(0, 300);
+		return `exit ${x.status ?? "?"}${stderr ? `: ${stderr}` : ""}`;
+	}
+	const message = x?.message ?? "git command failed";
+	return message.startsWith("Command failed") ? "git command failed" : message;
 }
 
 function escapeRegExp(value: string): string {
@@ -224,12 +261,61 @@ export class GitService {
 	private worktreeIncludeService: WorktreeIncludeService;
 	private cyrusHome: string;
 	private untrustedWorktree: boolean;
+	/** Parent-owned git env: location + config pins for every git call. */
+	readonly gitEnv: GitEnv;
 
 	constructor(options?: GitServiceOptions, logger?: ILogger) {
 		this.logger = logger ?? createLogger({ component: "GitService" });
 		this.worktreeIncludeService = new WorktreeIncludeService(this.logger);
 		this.cyrusHome = options?.cyrusHome ?? join(homedir(), ".cyrus");
 		this.untrustedWorktree = options?.untrustedWorktree ?? false;
+		this.gitEnv =
+			options?.gitEnv ??
+			new GitEnv({
+				cyrusHome: this.cyrusHome,
+				hooksDir: options?.gitHooksDir,
+				credentialHelper: options?.gitCredentialHelper,
+				ghBinary: options?.ghBinary,
+				allowFileProtocol: options?.gitAllowFileProtocol,
+				logger: this.logger,
+			});
+	}
+
+	/** Pinned repo-scope invocation; throws GitEnvError when unusable. */
+	private repoInv(repoPath: string): GitInvocation {
+		return this.gitEnv.repoScope(repoPath);
+	}
+
+	/**
+	 * Read the worktree pointers (`.git` gitfile, `commondir`) with plain file
+	 * reads. No git process is started in a directory a session can write.
+	 */
+	private readWorktreePointers(
+		workingDirectory: string,
+	): { gitDir: string; commonDir: string } | null {
+		try {
+			const gitPath = join(workingDirectory, ".git");
+			const st = lstatSync(gitPath);
+			if (st.isDirectory()) {
+				return { gitDir: gitPath, commonDir: gitPath };
+			}
+			if (!st.isFile()) return null;
+			const m = readFileSync(gitPath, "utf8")
+				.trim()
+				.match(/^gitdir:\s+(.+)$/);
+			if (!m?.[1]) return null;
+			const gitDir = pathResolve(workingDirectory, m[1]);
+			let commonDir = gitDir;
+			try {
+				const c = readFileSync(join(gitDir, "commondir"), "utf8").trim();
+				if (c) commonDir = pathResolve(gitDir, c);
+			} catch {
+				// no commondir file: not a linked worktree layout
+			}
+			return { gitDir, commonDir };
+		} catch {
+			return null;
+		}
 	}
 
 	/**
@@ -237,28 +323,39 @@ export class GitService {
 	 */
 	async branchExists(branchName: string, repoPath: string): Promise<boolean> {
 		try {
-			// Check if branch exists locally
-			execSync(`git rev-parse --verify "${branchName}"`, {
-				cwd: repoPath,
-				stdio: "pipe",
-			});
-			return true;
-		} catch {
-			// Branch doesn't exist locally, check remote
+			const inv = this.repoInv(repoPath);
 			try {
-				const remoteOutput = execSync(
-					`git ls-remote --heads origin "${branchName}"`,
-					{
-						cwd: repoPath,
-						stdio: "pipe",
-					},
-				);
-				// Check if output is non-empty (branch actually exists on remote)
-				return remoteOutput && remoteOutput.toString().trim().length > 0;
+				// Check if branch exists locally
+				this.gitEnv.run(inv, ["rev-parse", "--verify", branchName]);
+				return true;
 			} catch {
-				return false;
+				// Branch doesn't exist locally, check remote
+				const url = this.remoteUrl(inv);
+				const remoteOutput = this.gitEnv.run(inv, [
+					"ls-remote",
+					"--heads",
+					"--",
+					url,
+					branchName,
+				]);
+				// Check if output is non-empty (branch actually exists on remote)
+				return remoteOutput.trim().length > 0;
 			}
+		} catch {
+			return false;
 		}
+	}
+
+	/**
+	 * The repository's remote URL, with the insteadOf post-check. Throws when
+	 * there is no remote, the URL looks like an option, or it is rewritten.
+	 */
+	private remoteUrl(inv: GitInvocation): string {
+		const url = this.gitEnv.trustedRemoteUrl(inv);
+		if (url.startsWith("-")) {
+			throw new GitEnvError("remote URL looks like an option");
+		}
+		return url;
 	}
 
 	/**
@@ -285,33 +382,9 @@ export class GitService {
 	 * `.git/worktrees/<name>/FETCH_HEAD`) that must be writable by sandboxes.
 	 */
 	public getGitMetadataDirectories(workingDirectory: string): string[] {
-		const resolvedDirectories = new Set<string>();
-		const revParse = (
-			flag: "--git-dir" | "--git-common-dir",
-		): string | null => {
-			try {
-				const output = execSync(`git rev-parse ${flag}`, {
-					cwd: workingDirectory,
-					encoding: "utf8",
-					stdio: "pipe",
-				}).trim();
-				return output ? pathResolve(workingDirectory, output) : null;
-			} catch {
-				return null;
-			}
-		};
-
-		const gitDir = revParse("--git-dir");
-		if (gitDir) {
-			resolvedDirectories.add(gitDir);
-		}
-
-		const gitCommonDir = revParse("--git-common-dir");
-		if (gitCommonDir) {
-			resolvedDirectories.add(gitCommonDir);
-		}
-
-		return [...resolvedDirectories];
+		const pointers = this.readWorktreePointers(workingDirectory);
+		if (!pointers) return [];
+		return [...new Set([pointers.gitDir, pointers.commonDir])];
 	}
 
 	/**
@@ -404,21 +477,10 @@ export class GitService {
 		gitDir: string | null;
 		commonDir: string | null;
 	} {
-		const revParse = (flag: "--git-dir" | "--git-common-dir") => {
-			try {
-				const output = execSync(`git rev-parse ${flag}`, {
-					cwd: workingDirectory,
-					encoding: "utf8",
-					stdio: "pipe",
-				}).trim();
-				return output ? pathResolve(workingDirectory, output) : null;
-			} catch {
-				return null;
-			}
-		};
+		const pointers = this.readWorktreePointers(workingDirectory);
 		return {
-			gitDir: revParse("--git-dir"),
-			commonDir: revParse("--git-common-dir"),
+			gitDir: pointers?.gitDir ?? null,
+			commonDir: pointers?.commonDir ?? null,
 		};
 	}
 
@@ -429,10 +491,11 @@ export class GitService {
 	 */
 	findWorktreeByBranch(branchName: string, repoPath: string): string | null {
 		try {
-			const output = execSync("git worktree list --porcelain", {
-				cwd: repoPath,
-				encoding: "utf-8",
-			});
+			const output = this.gitEnv.run(this.repoInv(repoPath), [
+				"worktree",
+				"list",
+				"--porcelain",
+			]);
 
 			const blocks = output.split("\n\n");
 			for (const block of blocks) {
@@ -730,6 +793,8 @@ export class GitService {
 
 		const repoPaths: Record<string, string> = {};
 		const resolvedBaseBranches: Record<string, BaseBranchResolution> = {};
+		const gitDirNames: Record<string, string> = {};
+		const branchNames: Record<string, string> = {};
 
 		for (const repository of repositories) {
 			const repoSubPath = join(parentPath, repository.name);
@@ -753,6 +818,12 @@ export class GitService {
 						repoWorkspace.resolvedBaseBranches,
 					);
 				}
+				if (repoWorkspace.branchNames) {
+					Object.assign(branchNames, repoWorkspace.branchNames);
+				}
+				if (repoWorkspace.gitDirNames) {
+					Object.assign(gitDirNames, repoWorkspace.gitDirNames);
+				}
 			} catch (error) {
 				this.logger.error(
 					`Failed to create worktree for repo '${repository.name}': ${(error as Error).message}`,
@@ -768,6 +839,8 @@ export class GitService {
 			isGitWorktree: true,
 			repoPaths,
 			resolvedBaseBranches,
+			...(Object.keys(gitDirNames).length > 0 ? { gitDirNames } : {}),
+			...(Object.keys(branchNames).length > 0 ? { branchNames } : {}),
 		};
 	}
 
@@ -777,34 +850,30 @@ export class GitService {
 	 * history is left untouched (diverged logs a warning).
 	 */
 	private fastForwardLocalBranch(
-		repoPath: string,
+		inv: GitInvocation,
 		branchName: string,
 		remoteSha: string,
 	): void {
 		try {
-			const localSha = execSync(
-				`git rev-parse --verify "refs/heads/${branchName}"`,
-				{ cwd: repoPath, stdio: "pipe" },
-			)
-				.toString()
+			const localSha = this.gitEnv
+				.run(inv, ["rev-parse", "--verify", `refs/heads/${branchName}`])
 				.trim();
 			if (!localSha || localSha === remoteSha) return;
 			const isAncestor = (a: string, b: string): boolean => {
 				try {
-					execSync(`git merge-base --is-ancestor "${a}" "${b}"`, {
-						cwd: repoPath,
-						stdio: "pipe",
-					});
+					this.gitEnv.run(inv, ["merge-base", "--is-ancestor", a, b]);
 					return true;
 				} catch {
 					return false;
 				}
 			};
 			if (isAncestor(localSha, remoteSha)) {
-				execSync(
-					`git update-ref "refs/heads/${branchName}" "${remoteSha}" "${localSha}"`,
-					{ cwd: repoPath, stdio: "pipe" },
-				);
+				this.gitEnv.run(inv, [
+					"update-ref",
+					`refs/heads/${branchName}`,
+					remoteSha,
+					localSha,
+				]);
 				this.logger.info(
 					`Fast-forwarded local branch ${branchName} to origin/${branchName}`,
 				);
@@ -816,8 +885,27 @@ export class GitService {
 		} catch (e) {
 			this.logger.warn(
 				`Could not update local branch ${branchName} from remote:`,
-				(e as Error).message,
+				describeGitError(e),
 			);
+		}
+	}
+
+	/**
+	 * Remove the parent's OWN admin dir `<common>/worktrees/<name>` for a
+	 * validated name. This replaces `git worktree prune`, which would also
+	 * delete other sessions' admin dirs on the strength of a session-writable
+	 * `gitdir` file.
+	 */
+	private removeAdminDir(repositoryPath: string, adminName: string): void {
+		if (!isPlainComponent(adminName)) return;
+		try {
+			const common = realpathSync.native(join(repositoryPath, ".git"));
+			const dir = join(common, "worktrees", adminName);
+			if (lstatSync(dir).isDirectory()) {
+				rmSync(dir, { recursive: true, force: true });
+			}
+		} catch {
+			// already gone
 		}
 	}
 
@@ -825,6 +913,10 @@ export class GitService {
 	 * Create a single git worktree for one repository.
 	 * This is the core worktree creation logic, used by createGitWorktree for both
 	 * single-repo and multi-repo cases.
+	 *
+	 * Every git call runs under the parent-owned pins of {@link GitEnv}: the
+	 * repository location and the dangerous config keys come from the parent,
+	 * never from anything a session can write.
 	 *
 	 * @param workspacePathOverride - Override the workspace path (used for N-repo subdirectories)
 	 */
@@ -848,28 +940,46 @@ export class GitService {
 				}
 			: { branch: repository.baseBranch, source: "default" };
 
+		// Use Linear's preferred branch name, or generate one if not available.
+		// This is the branch the PARENT creates; it is recorded on the workspace
+		// so later parent-side calls (gh pr view) use it, not the raw Linear name.
+		const rawBranchName =
+			issue.branchName ||
+			`${issue.identifier}-${issue.title
+				?.toLowerCase()
+				.replace(/\s+/g, "-")
+				.substring(0, 30)}`;
+		const branchName = this.sanitizeBranchName(rawBranchName);
+		const branchNames = { branchNames: { [repository.id]: branchName } };
+
+		const gitDirNamesFor = (
+			workspacePath: string,
+		): { gitDirNames?: Record<string, string> } => {
+			try {
+				const name = this.gitEnv.resolveAdminName(
+					repository.repositoryPath,
+					workspacePath,
+				);
+				return name ? { gitDirNames: { [repository.id]: name } } : {};
+			} catch {
+				return {};
+			}
+		};
+
 		try {
 			// Verify this is a git repository
+			let inv: GitInvocation;
 			try {
-				execSync("git rev-parse --git-dir", {
-					cwd: repository.repositoryPath,
-					stdio: "pipe",
-				});
+				inv = this.repoInv(repository.repositoryPath);
+				this.gitEnv.run(inv, ["rev-parse", "--git-dir"]);
 			} catch (_e) {
 				this.logger.error(
 					`${repository.repositoryPath} is not a git repository`,
 				);
 				throw new Error("Not a git repository");
 			}
+			const git = (args: string[]): string => this.gitEnv.run(inv, args);
 
-			// Use Linear's preferred branch name, or generate one if not available
-			const rawBranchName =
-				issue.branchName ||
-				`${issue.identifier}-${issue.title
-					?.toLowerCase()
-					.replace(/\s+/g, "-")
-					.substring(0, 30)}`;
-			const branchName = this.sanitizeBranchName(rawBranchName);
 			const workspacePath =
 				workspacePathOverride ??
 				join(repository.workspaceBaseDir, issue.identifier);
@@ -891,12 +1001,13 @@ export class GitService {
 			);
 			const baseBranch = resolution.branch;
 
+			// A registration whose directory is gone: re-add with --force when we
+			// cannot remove its admin dir by a validated name.
+			let forceAdd = false;
+
 			// Check if worktree already exists
 			try {
-				const worktrees = execSync("git worktree list --porcelain", {
-					cwd: repository.repositoryPath,
-					encoding: "utf-8",
-				});
+				const worktrees = git(["worktree", "list", "--porcelain"]);
 
 				// Use exact line match to avoid substring false positives
 				// (e.g., "/path/CYSV-56" matching "/path/CYSV-56/cyrus")
@@ -916,19 +1027,20 @@ export class GitService {
 							path: workspacePath,
 							isGitWorktree: true,
 							resolvedBaseBranches: { [repository.id]: resolution },
+							...branchNames,
+							...gitDirNamesFor(workspacePath),
 						};
 					}
-					// Stale worktree entry — prune and continue with creation
+					// Stale worktree entry: remove our own admin dir (no prune) and continue
 					this.logger.info(
-						`Stale worktree entry found for ${workspacePath}, pruning and recreating`,
+						`Stale worktree entry found for ${workspacePath}, removing its admin dir and recreating`,
 					);
-					try {
-						execSync("git worktree prune", {
-							cwd: repository.repositoryPath,
-							stdio: "pipe",
-						});
-					} catch {
-						// Prune failed, continue anyway
+					const stale =
+						gitDirNamesFor(workspacePath).gitDirNames?.[repository.id];
+					if (stale) {
+						this.removeAdminDir(repository.repositoryPath, stale);
+					} else {
+						forceAdd = true;
 					}
 				}
 			} catch (_e) {
@@ -938,10 +1050,7 @@ export class GitService {
 			// Check if branch already exists
 			let createBranch = true;
 			try {
-				execSync(`git rev-parse --verify "${branchName}"`, {
-					cwd: repository.repositoryPath,
-					stdio: "pipe",
-				});
+				git(["rev-parse", "--verify", branchName]);
 				createBranch = false;
 			} catch (_e) {
 				// Branch doesn't exist, we'll create it
@@ -961,24 +1070,34 @@ export class GitService {
 						path: existingWorktreePath,
 						isGitWorktree: true,
 						resolvedBaseBranches: { [repository.id]: resolution },
+						...branchNames,
+						...gitDirNamesFor(existingWorktreePath),
 					};
 				}
 			}
 
-			// Fetch latest changes from remote
+			// Fetch latest changes from remote. The URL is read from the parent's
+			// repo config, checked for insteadOf rewriting, and passed explicitly
+			// with an explicit refspec so a planted remote/branch config can not
+			// redirect where the credential is sent.
 			this.logger.debug("Fetching latest changes from remote...");
 			let hasRemote = true;
+			let remoteUrl = "";
 			try {
+				remoteUrl = this.remoteUrl(inv);
 				// --prune drops remote-tracking refs for branches deleted on the remote
 				// (e.g. a merged PR branch), so they are not mistaken for existing ones.
-				execSync("git fetch origin --prune", {
-					cwd: repository.repositoryPath,
-					stdio: "pipe",
-				});
+				git([
+					"fetch",
+					"--prune",
+					"--",
+					remoteUrl,
+					"+refs/heads/*:refs/remotes/origin/*",
+				]);
 			} catch (e) {
 				this.logger.warn(
 					"Warning: git fetch failed, proceeding with local branch:",
-					(e as Error).message,
+					describeGitError(e),
 				);
 				hasRemote = false;
 			}
@@ -989,39 +1108,43 @@ export class GitService {
 			let remoteBranchSha = "";
 			if (hasRemote) {
 				try {
-					remoteBranchSha = execSync(
-						`git rev-parse --verify "refs/remotes/origin/${branchName}"`,
-						{ cwd: repository.repositoryPath, stdio: "pipe" },
-					)
-						.toString()
-						.trim();
+					remoteBranchSha = git([
+						"rev-parse",
+						"--verify",
+						`refs/remotes/origin/${branchName}`,
+					]).trim();
 				} catch {
 					// No remote branch with this name
 				}
 			}
 
 			// Create the worktree - use determined base branch
-			let worktreeCmd: string;
+			let worktreeArgs: string[];
 			if (createBranch && remoteBranchSha) {
 				this.logger.info(
 					`Creating git worktree at ${workspacePath} from existing remote branch origin/${branchName}`,
 				);
-				worktreeCmd = `git worktree add --track -b "${branchName}" "${workspacePath}" "origin/${branchName}"`;
+				worktreeArgs = [
+					"--track",
+					"-b",
+					branchName,
+					workspacePath,
+					`origin/${branchName}`,
+				];
 			} else if (createBranch) {
 				if (hasRemote) {
 					// Check if the base branch exists remotely
 					let useRemoteBranch = false;
 					try {
-						const remoteOutput = execSync(
-							`git ls-remote --heads origin "${baseBranch}"`,
-							{
-								cwd: repository.repositoryPath,
-								stdio: "pipe",
-							},
-						);
+						const remoteOutput = git([
+							"ls-remote",
+							"--heads",
+							"--",
+							remoteUrl,
+							baseBranch,
+						]);
 						// Check if output is non-empty (branch actually exists on remote)
-						useRemoteBranch =
-							remoteOutput && remoteOutput.toString().trim().length > 0;
+						useRemoteBranch = remoteOutput.trim().length > 0;
 						if (!useRemoteBranch) {
 							this.logger.info(
 								`Base branch '${baseBranch}' not found on remote, checking locally...`,
@@ -1040,26 +1163,34 @@ export class GitService {
 						this.logger.info(
 							`Creating git worktree at ${workspacePath} from ${remoteBranch} (tracking ${baseBranch})`,
 						);
-						worktreeCmd = `git worktree add --track -b "${branchName}" "${workspacePath}" "${remoteBranch}"`;
+						worktreeArgs = [
+							"--track",
+							"-b",
+							branchName,
+							workspacePath,
+							remoteBranch,
+						];
 					} else {
 						// Check if base branch exists locally
 						try {
-							execSync(`git rev-parse --verify "${baseBranch}"`, {
-								cwd: repository.repositoryPath,
-								stdio: "pipe",
-							});
+							git(["rev-parse", "--verify", baseBranch]);
 							// Use local base branch (can't track since remote doesn't have it)
 							this.logger.info(
 								`Creating git worktree at ${workspacePath} from local ${baseBranch}`,
 							);
-							worktreeCmd = `git worktree add -b "${branchName}" "${workspacePath}" "${baseBranch}"`;
+							worktreeArgs = ["-b", branchName, workspacePath, baseBranch];
 						} catch {
 							// Base branch doesn't exist locally either, fall back to remote default with --track
 							this.logger.info(
 								`Base branch '${baseBranch}' not found locally, falling back to remote ${repository.baseBranch} (tracking ${repository.baseBranch})`,
 							);
-							const defaultRemoteBranch = `origin/${repository.baseBranch}`;
-							worktreeCmd = `git worktree add --track -b "${branchName}" "${workspacePath}" "${defaultRemoteBranch}"`;
+							worktreeArgs = [
+								"--track",
+								"-b",
+								branchName,
+								workspacePath,
+								`origin/${repository.baseBranch}`,
+							];
 						}
 					}
 				} else {
@@ -1067,29 +1198,36 @@ export class GitService {
 					this.logger.info(
 						`Creating git worktree at ${workspacePath} from local ${baseBranch}`,
 					);
-					worktreeCmd = `git worktree add -b "${branchName}" "${workspacePath}" "${baseBranch}"`;
+					worktreeArgs = ["-b", branchName, workspacePath, baseBranch];
 				}
 			} else {
 				// Branch already exists locally. Fast-forward it to the remote
 				// branch when that is strictly ahead; never discard local commits.
 				if (remoteBranchSha) {
-					this.fastForwardLocalBranch(
-						repository.repositoryPath,
-						branchName,
-						remoteBranchSha,
-					);
+					this.fastForwardLocalBranch(inv, branchName, remoteBranchSha);
 				}
 				// Just check it out
 				this.logger.info(
 					`Creating git worktree at ${workspacePath} with existing branch ${branchName}`,
 				);
-				worktreeCmd = `git worktree add "${workspacePath}" "${branchName}"`;
+				worktreeArgs = [workspacePath, branchName];
 			}
 
-			execSync(worktreeCmd, {
-				cwd: repository.repositoryPath,
-				stdio: "pipe",
-			});
+			// The new admin dir is the one that appears across `worktree add`
+			// (parent-only observation; no session exists yet).
+			const adminBefore = new Set(
+				this.gitEnv.listAdminDirs(repository.repositoryPath),
+			);
+			git(["worktree", "add", ...(forceAdd ? ["-f"] : []), ...worktreeArgs]);
+			let gitDirNames: Record<string, string> | undefined;
+			const added = this.gitEnv
+				.listAdminDirs(repository.repositoryPath)
+				.filter((n) => !adminBefore.has(n));
+			if (added.length === 1) {
+				gitDirNames = { [repository.id]: added[0] as string };
+			} else {
+				gitDirNames = gitDirNamesFor(workspacePath).gitDirNames;
+			}
 
 			// For a NEW branch, point its upstream at its own name on the remote
 			// (not the base branch that --track set). Sandboxed sessions cannot
@@ -1097,21 +1235,16 @@ export class GitService {
 			// keeps `@{u}..HEAD` accurate (unresolved until the first push, then 0).
 			if (createBranch) {
 				try {
-					execSync(`git config "branch.${branchName}.remote" origin`, {
-						cwd: repository.repositoryPath,
-						stdio: "pipe",
-					});
-					execSync(
-						`git config "branch.${branchName}.merge" "refs/heads/${branchName}"`,
-						{
-							cwd: repository.repositoryPath,
-							stdio: "pipe",
-						},
-					);
+					git(["config", `branch.${branchName}.remote`, "origin"]);
+					git([
+						"config",
+						`branch.${branchName}.merge`,
+						`refs/heads/${branchName}`,
+					]);
 				} catch (e) {
 					this.logger.warn(
 						`Failed to set upstream for branch ${branchName}:`,
-						(e as Error).message,
+						describeGitError(e),
 					);
 				}
 			}
@@ -1145,10 +1278,15 @@ export class GitService {
 				path: workspacePath,
 				isGitWorktree: true,
 				resolvedBaseBranches: { [repository.id]: resolution },
+				...branchNames,
+				...(gitDirNames ? { gitDirNames } : {}),
 			};
 		} catch (error) {
 			const errorMessage = (error as Error).message;
-			this.logger.error("Failed to create git worktree:", errorMessage);
+			this.logger.error(
+				"Failed to create git worktree:",
+				describeGitError(error),
+			);
 
 			// Check if the error is "branch already checked out in another worktree"
 			// Git error format: "fatal: 'branch-name' is already used by worktree at '/path/to/worktree'"
@@ -1163,6 +1301,8 @@ export class GitService {
 					path: worktreeMatch[1],
 					isGitWorktree: true,
 					resolvedBaseBranches: { [repository.id]: fallbackResolution },
+					...branchNames,
+					...gitDirNamesFor(worktreeMatch[1]),
 				};
 			}
 
@@ -1175,6 +1315,7 @@ export class GitService {
 				path: fallbackPath,
 				isGitWorktree: false,
 				resolvedBaseBranches: { [repository.id]: fallbackResolution },
+				...branchNames,
 			};
 		}
 	}
@@ -1227,30 +1368,40 @@ export class GitService {
 			repositories: options.repositories,
 		});
 
-		// Collect parent repository paths so we can prune stale entries after deletion
-		const parentRepoPaths = new Set<string>();
-
+		// Each worktree is matched to a CONFIGURED repository by the admin dir
+		// whose `gitdir` equals `<worktree>/.git`; the pointers inside the
+		// worktree are never followed. No `git worktree prune`: prune acts on
+		// every admin dir on the strength of a session-writable `gitdir` file.
+		if (worktreePaths.length > 0 && !options.repositories?.length) {
+			this.logger.warn(
+				`deleteWorktree(${issueIdentifier}) called without repositories: git worktree registrations are not removed (the directory is)`,
+			);
+		}
+		const owned: Array<{ repositoryPath: string; adminName: string }> = [];
 		for (const wtPath of worktreePaths) {
-			try {
-				this.logger.info(`Removing git worktree: ${wtPath}`);
-				// Derive the main repository path from the worktree's .git file
-				// so we can run the command from a valid git context.
-				const mainRepoPath = this.getMainRepoFromWorktree(wtPath);
-				if (mainRepoPath) {
-					parentRepoPaths.add(mainRepoPath);
+			for (const repo of options.repositories ?? []) {
+				let adminName: string | null = null;
+				try {
+					adminName = this.gitEnv.resolveAdminName(repo.repositoryPath, wtPath);
+				} catch {
+					adminName = null;
 				}
-				// Fall back to the worktree path itself (git reads its .git file to find the parent)
-				const cwd = mainRepoPath ?? wtPath;
-				execSync(`git worktree remove --force "${wtPath}"`, {
-					cwd,
-					stdio: "pipe",
-					timeout: 30_000,
-				});
-			} catch (error) {
-				this.logger.warn(
-					`Failed to remove git worktree at ${wtPath}: ${(error as Error).message}`,
-				);
-				// Continue with directory deletion even if git worktree remove fails
+				if (!adminName) continue;
+				owned.push({ repositoryPath: repo.repositoryPath, adminName });
+				try {
+					this.logger.info(`Removing git worktree: ${wtPath}`);
+					this.gitEnv.run(
+						this.repoInv(repo.repositoryPath),
+						["worktree", "remove", "--force", wtPath],
+						{ timeout: 30_000 },
+					);
+				} catch (error) {
+					this.logger.warn(
+						`Failed to remove git worktree at ${wtPath}: ${describeGitError(error)}`,
+					);
+					// Continue with directory deletion even if git worktree remove fails
+				}
+				break;
 			}
 		}
 
@@ -1264,19 +1415,10 @@ export class GitService {
 			);
 		}
 
-		// Prune stale worktree entries from parent repositories.
-		// If git worktree remove failed above, the filesystem directory was still deleted
-		// by rmSync, leaving stale entries in git's internal tracking.
-		for (const repoPath of parentRepoPaths) {
-			try {
-				execSync("git worktree prune", {
-					cwd: repoPath,
-					stdio: "pipe",
-					timeout: 10_000,
-				});
-			} catch {
-				// Best-effort: prune failure is not critical
-			}
+		// If `worktree remove` failed above, the directory is gone but the
+		// registration is stale: drop only our own validated admin dirs.
+		for (const { repositoryPath, adminName } of owned) {
+			this.removeAdminDir(repositoryPath, adminName);
 		}
 	}
 
@@ -1381,32 +1523,6 @@ export class GitService {
 			return stats.isFile();
 		} catch {
 			return false;
-		}
-	}
-
-	/**
-	 * Extract the main repository path from a worktree's .git file.
-	 * Worktree .git files contain "gitdir: /path/to/main-repo/.git/worktrees/<name>".
-	 * Returns the main repository directory, or null if it cannot be determined.
-	 */
-	private getMainRepoFromWorktree(worktreePath: string): string | null {
-		try {
-			const gitFilePath = join(worktreePath, ".git");
-			if (!existsSync(gitFilePath)) return null;
-			const stats = statSync(gitFilePath);
-			if (!stats.isFile()) return null;
-
-			const content = readFileSync(gitFilePath, "utf-8").trim();
-			const match = content.match(/^gitdir:\s+(.+)$/);
-			if (!match?.[1]) return null;
-
-			// gitdir points to main-repo/.git/worktrees/<name>
-			// Resolve to absolute path (may be relative), then go up 3 levels
-			const gitDir = pathResolve(worktreePath, match[1]);
-			const mainRepoDir = pathResolve(gitDir, "..", "..", "..");
-			return existsSync(mainRepoDir) ? mainRepoDir : null;
-		} catch {
-			return null;
 		}
 	}
 

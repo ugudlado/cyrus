@@ -1,6 +1,4 @@
-import { execSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type {
 	HookCallbackMatcher,
@@ -15,6 +13,11 @@ import {
 	extractToolPath,
 	type IntentToAddGitClient,
 } from "../src/hooks/IntentToAddHook.js";
+import {
+	git,
+	makeSessionFixture,
+	type SessionFixture,
+} from "./helpers/sessionGitFixture.js";
 
 const silentLogger: ILogger = {
 	debug: () => {},
@@ -22,20 +25,6 @@ const silentLogger: ILogger = {
 	warn: () => {},
 	error: () => {},
 } as unknown as ILogger;
-
-function git(cwd: string, args: string): void {
-	execSync(`git ${args}`, {
-		cwd,
-		stdio: ["ignore", "ignore", "ignore"],
-		env: {
-			...process.env,
-			GIT_AUTHOR_NAME: "test",
-			GIT_AUTHOR_EMAIL: "test@example.com",
-			GIT_COMMITTER_NAME: "test",
-			GIT_COMMITTER_EMAIL: "test@example.com",
-		},
-	});
-}
 
 function makeHookInput(
 	toolName: string,
@@ -179,89 +168,80 @@ describe("buildIntentToAddHook", () => {
 });
 
 describe("DefaultIntentToAddGitClient (integration with real git)", () => {
-	let workdir: string;
+	let fx: SessionFixture;
+	const status = () =>
+		git(fx.ws, "status", "--porcelain", "--untracked-files=no").trim();
 
 	beforeEach(() => {
-		workdir = mkdtempSync(join(tmpdir(), "cyrus-intent-to-add-"));
+		fx = makeSessionFixture();
 	});
 
 	afterEach(() => {
-		rmSync(workdir, { recursive: true, force: true });
+		fx.cleanup();
 	});
 
 	it("marks an untracked file with intent-to-add so git status surfaces it", () => {
-		git(workdir, "init -b main");
-		writeFileSync(join(workdir, "README.md"), "hello\n");
-		git(workdir, "add README.md");
-		git(workdir, 'commit -m "init"');
-
-		const newFile = join(workdir, "new-feature.ts");
+		const newFile = join(fx.ws, "new-feature.ts");
 		writeFileSync(newFile, "export const x = 1;\n");
 
-		const client = new DefaultIntentToAddGitClient();
-		applyIntentToAdd(client, workdir, newFile, silentLogger);
+		const client = new DefaultIntentToAddGitClient(fx.sessionGit);
+		applyIntentToAdd(client, fx.ws, newFile, silentLogger);
 
-		const status = execSync("git status --porcelain --untracked-files=no", {
-			cwd: workdir,
-			encoding: "utf8",
-		}).trim();
-		expect(status).toMatch(/new-feature\.ts/);
+		expect(status()).toMatch(/new-feature\.ts/);
 	});
 
-	it("does nothing when cwd is not a git repo", () => {
-		const newFile = join(workdir, "file.ts");
+	it("does nothing when cwd has no trusted git target", () => {
+		const outside = join(fx.root, "plain");
+		mkdirSync(outside);
+		const newFile = join(outside, "file.ts");
 		writeFileSync(newFile, "x\n");
-		const client = new DefaultIntentToAddGitClient();
+		const client = new DefaultIntentToAddGitClient(fx.sessionGit);
 		expect(() =>
-			applyIntentToAdd(client, workdir, newFile, silentLogger),
+			applyIntentToAdd(client, outside, newFile, silentLogger),
 		).not.toThrow();
-		expect(existsSync(join(workdir, ".git"))).toBe(false);
+		expect(existsSync(join(outside, ".git"))).toBe(false);
+	});
+
+	it("does nothing without a SessionGit (fails closed)", () => {
+		const newFile = join(fx.ws, "new-feature.ts");
+		writeFileSync(newFile, "x\n");
+		applyIntentToAdd(
+			new DefaultIntentToAddGitClient(),
+			fx.ws,
+			newFile,
+			silentLogger,
+		);
+		expect(status()).toBe("");
 	});
 
 	it("does nothing when the path is gitignored", () => {
-		git(workdir, "init -b main");
-		writeFileSync(join(workdir, ".gitignore"), "ignored.txt\n");
-		git(workdir, "add .gitignore");
-		git(workdir, 'commit -m "init"');
+		writeFileSync(join(fx.ws, ".gitignore"), "ignored.txt\n");
+		git(fx.ws, "add", ".gitignore");
+		git(fx.ws, "commit", "-m", "ignore");
 
-		const ignored = join(workdir, "ignored.txt");
+		const ignored = join(fx.ws, "ignored.txt");
 		writeFileSync(ignored, "x\n");
 
-		const client = new DefaultIntentToAddGitClient();
-		applyIntentToAdd(client, workdir, ignored, silentLogger);
+		const client = new DefaultIntentToAddGitClient(fx.sessionGit);
+		applyIntentToAdd(client, fx.ws, ignored, silentLogger);
 
-		const status = execSync("git status --porcelain --untracked-files=no", {
-			cwd: workdir,
-			encoding: "utf8",
-		}).trim();
-		expect(status).toBe("");
+		expect(status()).toBe("");
 	});
 
 	it("does nothing when the path is already tracked", () => {
-		git(workdir, "init -b main");
-		const tracked = join(workdir, "tracked.txt");
-		writeFileSync(tracked, "hello\n");
-		git(workdir, "add tracked.txt");
-		git(workdir, 'commit -m "init"');
-
-		const client = new DefaultIntentToAddGitClient();
+		const tracked = join(fx.ws, "README.md");
+		const client = new DefaultIntentToAddGitClient(fx.sessionGit);
 		expect(() =>
-			applyIntentToAdd(client, workdir, tracked, silentLogger),
+			applyIntentToAdd(client, fx.ws, tracked, silentLogger),
 		).not.toThrow();
-
-		const status = execSync("git status --porcelain --untracked-files=no", {
-			cwd: workdir,
-			encoding: "utf8",
-		}).trim();
-		expect(status).toBe("");
+		expect(status()).toBe("");
 	});
 
 	it("does nothing when the path does not exist", () => {
-		git(workdir, "init -b main");
-		const missing = join(workdir, "missing.txt");
-		const client = new DefaultIntentToAddGitClient();
+		const missing = join(fx.ws, "missing.txt");
+		const client = new DefaultIntentToAddGitClient(fx.sessionGit);
 		expect(() =>
-			applyIntentToAdd(client, workdir, missing, silentLogger),
+			applyIntentToAdd(client, fx.ws, missing, silentLogger),
 		).not.toThrow();
 	});
 });

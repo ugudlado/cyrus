@@ -28,7 +28,7 @@ export interface PrMarkerProvider {
 	 * description for the branch checked out at `cwd`. Implementations should
 	 * be a no-op when no PR/MR exists yet, or when the marker is already there.
 	 */
-	ensureMarker(cwd: string, log: ILogger): void;
+	ensureMarker(cwd: string, log: ILogger): void | Promise<void>;
 }
 
 /**
@@ -47,12 +47,40 @@ export function appendMarker(body: string | null | undefined): string {
 	return `${trimmed}\n\n${CYRUS_PR_MARKER}`;
 }
 
+/** What the GitHub provider needs to run gh safely (see {@link SessionGit.ghContextFor}). */
+export interface PrMarkerGhContext {
+	/** Absolute path of the real gh. */
+	binary: string;
+	/** Neutral cwd (never the workspace). */
+	cwd: string;
+	/** Complete child env: explicit GH_TOKEN, empty GH_CONFIG_DIR, fixed PATH. */
+	env: Record<string, string>;
+	/** OWNER/NAME from the trusted repository config. */
+	slug: string;
+	/** Branch the parent created for the session. */
+	branch: string;
+	cleanup(): void;
+}
+
+/** Resolves the gh context for a tool cwd, or null when gh must not run. */
+export type PrMarkerGhResolver = (
+	cwd: string,
+) => Promise<PrMarkerGhContext | null>;
+
 /**
- * GitHub provider — uses the `gh` CLI. Also covers `gt submit` (Graphite),
+ * GitHub provider: uses the `gh` CLI. Also covers `gt submit` (Graphite),
  * which submits via the GitHub API and ends up viewable through `gh pr view`.
+ *
+ * gh runs git itself and discovers the repository, branch and token from its
+ * cwd, all session-writable. So it is run by absolute path from a neutral cwd
+ * with `-R OWNER/NAME` and an explicit branch from the parent's records, an
+ * explicit GH_TOKEN and an empty GH_CONFIG_DIR. Without a resolver (or when it
+ * returns null) the provider does nothing.
  */
 export class GitHubPrMarkerProvider implements PrMarkerProvider {
 	readonly name = "github";
+
+	constructor(private resolveGh?: PrMarkerGhResolver) {}
 
 	matches(command: string): boolean {
 		// Strip surrounding shell noise; we only care whether the command line
@@ -63,14 +91,31 @@ export class GitHubPrMarkerProvider implements PrMarkerProvider {
 		);
 	}
 
-	ensureMarker(cwd: string, log: ILogger): void {
+	async ensureMarker(cwd: string, log: ILogger): Promise<void> {
+		const gh = await this.resolveGh?.(cwd);
+		if (!gh) {
+			return;
+		}
+		try {
+			this.ensureWithGh(gh, log);
+		} finally {
+			gh.cleanup();
+		}
+	}
+
+	private ensureWithGh(gh: PrMarkerGhContext, log: ILogger): void {
 		let payload: { body?: string; number?: number };
 		try {
-			const json = execFileSync("gh", ["pr", "view", "--json", "body,number"], {
-				cwd,
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "ignore"],
-			});
+			const json = execFileSync(
+				gh.binary,
+				["pr", "view", gh.branch, "-R", gh.slug, "--json", "body,number"],
+				{
+					cwd: gh.cwd,
+					env: gh.env,
+					encoding: "utf8",
+					stdio: ["ignore", "pipe", "ignore"],
+				},
+			);
 			payload = JSON.parse(json) as { body?: string; number?: number };
 		} catch {
 			// No PR for this branch yet, gh not authenticated, or not a GitHub
@@ -87,10 +132,11 @@ export class GitHubPrMarkerProvider implements PrMarkerProvider {
 		}
 
 		const result = spawnSync(
-			"gh",
-			["pr", "edit", String(payload.number), "--body-file", "-"],
+			gh.binary,
+			["pr", "edit", String(payload.number), "-R", gh.slug, "--body-file", "-"],
 			{
-				cwd,
+				cwd: gh.cwd,
+				env: gh.env,
 				input: updated,
 				encoding: "utf8",
 				stdio: ["pipe", "pipe", "pipe"],
@@ -120,47 +166,15 @@ export class GitLabMrMarkerProvider implements PrMarkerProvider {
 		return /\bglab\s+mr\s+(create|update|edit)\b/.test(command);
 	}
 
-	ensureMarker(cwd: string, log: ILogger): void {
-		let payload: { description?: string; iid?: number };
-		try {
-			const json = execFileSync("glab", ["mr", "view", "--output", "json"], {
-				cwd,
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "ignore"],
-			});
-			payload = JSON.parse(json) as { description?: string; iid?: number };
-		} catch {
-			return;
-		}
-
-		if (typeof payload.iid !== "number") {
-			return;
-		}
-		const updated = appendMarker(payload.description);
-		if (updated === (payload.description ?? "")) {
-			return;
-		}
-
-		const result = spawnSync(
-			"glab",
-			["mr", "update", String(payload.iid), "--description", updated],
-			{
-				cwd,
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "pipe"],
-			},
-		);
-		if (result.status !== 0) {
-			log.warn(
-				`[PrMarkerHook] glab mr update failed for !${payload.iid}: ${
-					result.stderr?.trim() || "unknown error"
-				}`,
-			);
-			return;
-		}
-		log.info(
-			`[PrMarkerHook] Appended Cyrus marker to GitLab MR !${payload.iid}`,
-		);
+	/**
+	 * Deliberately a no-op. `glab` discovers the repository, branch and token
+	 * from its cwd (session-writable), like `gh` did before the parent-side git
+	 * hardening, and has no pinned context yet. The GitLab MR marker stays
+	 * disabled until it is converted the way {@link GitHubPrMarkerProvider} is
+	 * (absolute binary, neutral cwd, explicit project and token).
+	 */
+	ensureMarker(_cwd: string, log: ILogger): void {
+		log.debug("[PrMarkerHook] GitLab MR marker is disabled (not converted)");
 	}
 }
 
@@ -175,10 +189,7 @@ export class GitLabMrMarkerProvider implements PrMarkerProvider {
  */
 export function buildPrMarkerHook(
 	log: ILogger,
-	providers: PrMarkerProvider[] = [
-		new GitHubPrMarkerProvider(),
-		new GitLabMrMarkerProvider(),
-	],
+	providers: PrMarkerProvider[] = [new GitHubPrMarkerProvider()],
 ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
 	return {
 		PostToolUse: [
@@ -195,7 +206,7 @@ export function buildPrMarkerHook(
 							return {};
 						}
 						try {
-							provider.ensureMarker(post.cwd, log);
+							await provider.ensureMarker(post.cwd, log);
 						} catch (err) {
 							log.warn(
 								`[PrMarkerHook] ${provider.name} provider threw: ${

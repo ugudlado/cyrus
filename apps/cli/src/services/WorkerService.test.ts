@@ -141,6 +141,9 @@ describe("WorkerService", () => {
 			promptDefaults: { debugger: { allowedTools: ["Read"] } },
 			sandbox: { enabled: false },
 			maxConcurrentSessions: 3,
+			gitHooksDir: "/var/lib/kittu/no-hooks",
+			gitCredentialHelper: "/usr/local/libexec/kittu-git-credential",
+			ghBinary: "/usr/bin/gh",
 		});
 
 		// Fixture-completeness tripwire: adding a field to EdgeConfigSchema

@@ -628,6 +628,31 @@ export const EdgeConfigSchema = z.object({
 	 * all agent network traffic through it for inspection and filtering.
 	 */
 	sandbox: SandboxConfigSchema.optional(),
+
+	/**
+	 * Absolute directory (`~/` allowed) that must stay EMPTY. Every parent-side
+	 * git call (fetch, worktree add, Stop-hook status, ...) pins
+	 * `core.hooksPath` to it so a repo's or worktree's own hooks never run in
+	 * the unsandboxed Kittu process. Defaults to an empty directory the parent
+	 * creates under the Kittu home. On the boat this is the root-owned
+	 * NO_HOOKS_DIR created by setup.
+	 */
+	gitHooksDir: z.string().optional(),
+
+	/**
+	 * Absolute path of the git credential helper the parent injects into its
+	 * own network git calls (`credential.https://github.com.helper`). When
+	 * unset the parent leaves credential configuration alone (ambient helper,
+	 * `gh auth setup-git`, PAT).
+	 */
+	gitCredentialHelper: z.string().optional(),
+
+	/**
+	 * Absolute path of the real `gh` binary the parent runs (PR marker hook).
+	 * Never the PATH-resolved `gh`, which on the boat is the per-repo token
+	 * shim. When unset the PR marker hook does not run `gh`.
+	 */
+	ghBinary: z.string().optional(),
 });
 
 /**

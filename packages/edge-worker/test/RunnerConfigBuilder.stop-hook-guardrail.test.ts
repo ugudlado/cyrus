@@ -1,14 +1,18 @@
-import { execSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { StopHookInput } from "cyrus-claude-runner";
 import type { ILogger } from "cyrus-core";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import type { SessionGit } from "../src/gitEnv.js";
 import {
 	buildStopHook,
 	inspectGitGuardrail,
 } from "../src/RunnerConfigBuilder.js";
+import {
+	git,
+	makeSessionFixture,
+	type SessionFixture,
+} from "./helpers/sessionGitFixture.js";
 
 const silentLogger: ILogger = {
 	debug: () => {},
@@ -17,19 +21,16 @@ const silentLogger: ILogger = {
 	error: () => {},
 } as unknown as ILogger;
 
-function git(cwd: string, args: string): void {
-	execSync(`git ${args}`, {
-		cwd,
-		stdio: ["ignore", "ignore", "ignore"],
-		env: {
-			...process.env,
-			GIT_AUTHOR_NAME: "test",
-			GIT_AUTHOR_EMAIL: "test@example.com",
-			GIT_COMMITTER_NAME: "test",
-			GIT_COMMITTER_EMAIL: "test@example.com",
-		},
-	});
+let fixtures: SessionFixture[] = [];
+function session(opts: { remote?: boolean; branch?: string } = {}) {
+	const fx = makeSessionFixture(opts);
+	fixtures.push(fx);
+	return fx;
 }
+afterEach(() => {
+	for (const fx of fixtures) fx.cleanup();
+	fixtures = [];
+});
 
 function makeStopInput(overrides: Partial<StopHookInput> = {}): StopHookInput {
 	return {
@@ -42,8 +43,8 @@ function makeStopInput(overrides: Partial<StopHookInput> = {}): StopHookInput {
 	} as StopHookInput;
 }
 
-function getStopHookCallback() {
-	const hooks = buildStopHook(silentLogger);
+function getStopHookCallback(sessionGit?: SessionGit) {
+	const hooks = buildStopHook(silentLogger, sessionGit);
 	const stop = hooks.Stop;
 	if (!stop || stop.length === 0) {
 		throw new Error("expected Stop hook entries");
@@ -58,16 +59,6 @@ function getStopHookCallback() {
 }
 
 describe("buildStopHook", () => {
-	let workdir: string;
-
-	beforeEach(() => {
-		workdir = mkdtempSync(join(tmpdir(), "cyrus-stop-hook-build-"));
-	});
-
-	afterEach(() => {
-		rmSync(workdir, { recursive: true, force: true });
-	});
-
 	it("returns the Stop hook with a single `.*` matcher", () => {
 		const hooks = buildStopHook(silentLogger);
 		expect(Object.keys(hooks)).toEqual(["Stop"]);
@@ -77,39 +68,23 @@ describe("buildStopHook", () => {
 	});
 
 	it("allows the stop through when the working tree is clean", async () => {
-		// Set up a clean repo synced with its upstream.
-		const remote = mkdtempSync(join(tmpdir(), "cyrus-stop-hook-remote-"));
-		try {
-			execSync(`git init --bare`, { cwd: remote, stdio: "ignore" });
-			git(workdir, "init -b main");
-			git(workdir, `remote add origin ${remote}`);
-			writeFileSync(join(workdir, "README.md"), "hello\n");
-			git(workdir, "add README.md");
-			git(workdir, 'commit -m "init"');
-			git(workdir, "push -u origin main");
-
-			const callback = getStopHookCallback();
-			const result = await callback(
-				makeStopInput({ cwd: workdir, stop_hook_active: false }),
-				"tool-use-id",
-				{ signal: new AbortController().signal },
-			);
-			expect(result).toEqual({});
-		} finally {
-			rmSync(remote, { recursive: true, force: true });
-		}
+		const fx = session({ remote: true });
+		const callback = getStopHookCallback(fx.sessionGit);
+		const result = await callback(
+			makeStopInput({ cwd: fx.ws, stop_hook_active: false }),
+			"tool-use-id",
+			{ signal: new AbortController().signal },
+		);
+		expect(result).toEqual({});
 	});
 
 	it("blocks the first stop attempt when there are uncommitted tracked changes", async () => {
-		git(workdir, "init -b main");
-		writeFileSync(join(workdir, "a.txt"), "stuff\n");
-		git(workdir, "add a.txt");
-		git(workdir, 'commit -m "init"');
-		writeFileSync(join(workdir, "a.txt"), "modified\n");
+		const fx = session();
+		writeFileSync(join(fx.ws, "README.md"), "modified\n");
 
-		const callback = getStopHookCallback();
+		const callback = getStopHookCallback(fx.sessionGit);
 		const result = (await callback(
-			makeStopInput({ cwd: workdir, stop_hook_active: false }),
+			makeStopInput({ cwd: fx.ws, stop_hook_active: false }),
 			"tool-use-id",
 			{ signal: new AbortController().signal },
 		)) as { decision?: string; reason?: string };
@@ -120,15 +95,12 @@ describe("buildStopHook", () => {
 	});
 
 	it("does not use the invalid `additionalContext` or `continue` fields when blocking", async () => {
-		git(workdir, "init -b main");
-		writeFileSync(join(workdir, "a.txt"), "stuff\n");
-		git(workdir, "add a.txt");
-		git(workdir, 'commit -m "init"');
-		writeFileSync(join(workdir, "a.txt"), "modified\n");
+		const fx = session();
+		writeFileSync(join(fx.ws, "README.md"), "modified\n");
 
-		const callback = getStopHookCallback();
+		const callback = getStopHookCallback(fx.sessionGit);
 		const result = (await callback(
-			makeStopInput({ cwd: workdir, stop_hook_active: false }),
+			makeStopInput({ cwd: fx.ws, stop_hook_active: false }),
 			"tool-use-id",
 			{ signal: new AbortController().signal },
 		)) as Record<string, unknown>;
@@ -138,76 +110,58 @@ describe("buildStopHook", () => {
 	});
 
 	it("allows the stop through when `stop_hook_active` is true even with dirty tree", async () => {
-		git(workdir, "init -b main");
-		writeFileSync(join(workdir, "a.txt"), "stuff\n");
-		git(workdir, "add a.txt");
-		git(workdir, 'commit -m "init"');
-		writeFileSync(join(workdir, "a.txt"), "modified\n");
+		const fx = session();
+		writeFileSync(join(fx.ws, "README.md"), "modified\n");
 
-		const callback = getStopHookCallback();
+		const callback = getStopHookCallback(fx.sessionGit);
 		const result = await callback(
-			makeStopInput({ cwd: workdir, stop_hook_active: true }),
+			makeStopInput({ cwd: fx.ws, stop_hook_active: true }),
 			"tool-use-id",
 			{ signal: new AbortController().signal },
 		);
 
 		expect(result).toEqual({});
 	});
+
+	it("does not block when no trusted git target exists for cwd", async () => {
+		const fx = session();
+		writeFileSync(join(fx.ws, "README.md"), "modified\n");
+		const callback = getStopHookCallback(); // no SessionGit
+		const result = await callback(
+			makeStopInput({ cwd: fx.ws, stop_hook_active: false }),
+			"tool-use-id",
+			{ signal: new AbortController().signal },
+		);
+		expect(result).toEqual({});
+	});
 });
 
 describe("inspectGitGuardrail", () => {
-	let workdir: string;
-
-	beforeEach(() => {
-		workdir = mkdtempSync(join(tmpdir(), "cyrus-stop-hook-"));
-	});
-
-	afterEach(() => {
-		rmSync(workdir, { recursive: true, force: true });
-	});
-
-	it("returns null when cwd is not a git repository", () => {
-		expect(inspectGitGuardrail(workdir, silentLogger)).toBeNull();
+	it("returns null when cwd is not a trusted git worktree", () => {
+		const fx = session();
+		expect(
+			inspectGitGuardrail(fx.root, silentLogger, fx.sessionGit),
+		).toBeNull();
 	});
 
 	it("returns null on a clean repo with no commits ahead of upstream", () => {
-		const remote = mkdtempSync(join(tmpdir(), "cyrus-stop-hook-remote-"));
-		try {
-			execSync(`git init --bare`, { cwd: remote, stdio: "ignore" });
-			git(workdir, "init -b main");
-			git(workdir, `remote add origin ${remote}`);
-			writeFileSync(join(workdir, "README.md"), "hello\n");
-			git(workdir, "add README.md");
-			git(workdir, 'commit -m "init"');
-			git(workdir, "push -u origin main");
-
-			expect(inspectGitGuardrail(workdir, silentLogger)).toBeNull();
-		} finally {
-			rmSync(remote, { recursive: true, force: true });
-		}
+		const fx = session({ remote: true });
+		expect(inspectGitGuardrail(fx.ws, silentLogger, fx.sessionGit)).toBeNull();
 	});
 
 	it("returns null when the only working-tree change is a pre-existing untracked file", () => {
 		// Cooper @ QuitCarbon's case: a stray untracked file outside .gitignore
 		// must not block the agent from stopping.
-		git(workdir, "init -b main");
-		writeFileSync(join(workdir, "README.md"), "hello\n");
-		git(workdir, "add README.md");
-		git(workdir, 'commit -m "init"');
-
-		writeFileSync(join(workdir, "scratch.txt"), "stray\n");
-
-		expect(inspectGitGuardrail(workdir, silentLogger)).toBeNull();
+		const fx = session();
+		writeFileSync(join(fx.ws, "scratch.txt"), "stray\n");
+		expect(inspectGitGuardrail(fx.ws, silentLogger, fx.sessionGit)).toBeNull();
 	});
 
 	it("returns a guardrail message for uncommitted changes to tracked files", () => {
-		git(workdir, "init -b main");
-		writeFileSync(join(workdir, "a.txt"), "stuff\n");
-		git(workdir, "add a.txt");
-		git(workdir, 'commit -m "init"');
-		writeFileSync(join(workdir, "a.txt"), "modified\n");
+		const fx = session();
+		writeFileSync(join(fx.ws, "README.md"), "modified\n");
 
-		const message = inspectGitGuardrail(workdir, silentLogger);
+		const message = inspectGitGuardrail(fx.ws, silentLogger, fx.sessionGit);
 		expect(message).toContain("1 uncommitted file change");
 		expect(message).toContain("Create or update a pull request");
 	});
@@ -216,71 +170,43 @@ describe("inspectGitGuardrail", () => {
 		// IntentToAddHook marks newly-Written files with `git add -N`. The
 		// guardrail must continue to see those as uncommitted work even
 		// though `--untracked-files=no` is set.
-		git(workdir, "init -b main");
-		writeFileSync(join(workdir, "README.md"), "hello\n");
-		git(workdir, "add README.md");
-		git(workdir, 'commit -m "init"');
+		const fx = session();
+		writeFileSync(join(fx.ws, "new-feature.ts"), "export const x = 1;\n");
+		git(fx.ws, "add", "--intent-to-add", "new-feature.ts");
 
-		writeFileSync(join(workdir, "new-feature.ts"), "export const x = 1;\n");
-		git(workdir, "add --intent-to-add new-feature.ts");
-
-		const message = inspectGitGuardrail(workdir, silentLogger);
+		const message = inspectGitGuardrail(fx.ws, silentLogger, fx.sessionGit);
 		expect(message).toContain("1 uncommitted file change");
 	});
 
 	it("counts commits ahead of upstream as unshipped work", () => {
-		const remote = mkdtempSync(join(tmpdir(), "cyrus-stop-hook-remote-"));
-		try {
-			execSync(`git init --bare`, { cwd: remote, stdio: "ignore" });
-			git(workdir, "init -b main");
-			git(workdir, `remote add origin ${remote}`);
-			writeFileSync(join(workdir, "README.md"), "hello\n");
-			git(workdir, "add README.md");
-			git(workdir, 'commit -m "init"');
-			git(workdir, "push -u origin main");
+		const fx = session({ remote: true });
+		writeFileSync(join(fx.ws, "feature.txt"), "feature\n");
+		git(fx.ws, "add", "feature.txt");
+		git(fx.ws, "commit", "-m", "feature");
 
-			writeFileSync(join(workdir, "feature.txt"), "feature\n");
-			git(workdir, "add feature.txt");
-			git(workdir, 'commit -m "feature"');
-
-			const message = inspectGitGuardrail(workdir, silentLogger);
-			expect(message).toContain("1 commit");
-			expect(message).toContain("not yet on the remote");
-		} finally {
-			rmSync(remote, { recursive: true, force: true });
-		}
+		const message = inspectGitGuardrail(fx.ws, silentLogger, fx.sessionGit);
+		expect(message).toContain("1 commit");
+		expect(message).toContain("not yet on the remote");
 	});
 
 	it("branch upstream set to origin/<branch>: counts unpushed before push, 0 after", () => {
-		const remote = mkdtempSync(join(tmpdir(), "cyrus-stop-hook-remote-"));
-		try {
-			execSync(`git init --bare`, { cwd: remote, stdio: "ignore" });
-			git(workdir, "init -b main");
-			git(workdir, `remote add origin ${remote}`);
-			writeFileSync(join(workdir, "README.md"), "hello\n");
-			git(workdir, "add README.md");
-			git(workdir, 'commit -m "init"');
-			git(workdir, "push origin main");
-			git(workdir, "remote set-head origin main");
+		const fx = session({ remote: true, branch: "feat/x" });
+		git(fx.repo, "remote", "set-head", "origin", "main");
 
-			// What GitService does for a new branch (sandbox can't write config).
-			git(workdir, "checkout -b feat/x");
-			git(workdir, "config branch.feat/x.remote origin");
-			git(workdir, "config branch.feat/x.merge refs/heads/feat/x");
-			writeFileSync(join(workdir, "feature.txt"), "feature\n");
-			git(workdir, "add feature.txt");
-			git(workdir, 'commit -m "feature"');
+		// What GitService does for a new branch (sandbox can't write config).
+		git(fx.repo, "config", "branch.feat/x.remote", "origin");
+		git(fx.repo, "config", "branch.feat/x.merge", "refs/heads/feat/x");
+		writeFileSync(join(fx.ws, "feature.txt"), "feature\n");
+		git(fx.ws, "add", "feature.txt");
+		git(fx.ws, "commit", "-m", "feature");
 
-			// origin/feat/x missing: @{u} fails, fallback to origin/HEAD counts it.
-			const before = inspectGitGuardrail(workdir, silentLogger);
-			expect(before).toContain("1 commit");
-			expect(before).toContain("not yet on the remote");
+		// origin/feat/x missing: @{u} fails, fallback to origin/HEAD counts it.
+		const before = inspectGitGuardrail(fx.ws, silentLogger, fx.sessionGit);
+		expect(before).toContain("1 commit");
+		expect(before).toContain("not yet on the remote");
 
-			// After a push (no -u) the remote-tracking ref exists at HEAD.
-			git(workdir, "push origin feat/x");
-			expect(inspectGitGuardrail(workdir, silentLogger)).toBeNull();
-		} finally {
-			rmSync(remote, { recursive: true, force: true });
-		}
+		// After a push (no -u) the remote-tracking ref exists at HEAD.
+		git(fx.ws, "push", "origin", "feat/x");
+		expect(inspectGitGuardrail(fx.ws, silentLogger, fx.sessionGit)).toBeNull();
 	});
 });

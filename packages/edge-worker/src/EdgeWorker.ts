@@ -168,6 +168,7 @@ import { DefaultSkillsDeployer } from "./DefaultSkillsDeployer.js";
 import { EgressProxy } from "./EgressProxy.js";
 import { GitService } from "./GitService.js";
 import { GlobalSessionRegistry } from "./GlobalSessionRegistry.js";
+import type { GitSessionTarget } from "./gitEnv.js";
 import { McpConfigService } from "./McpConfigService.js";
 import { PromptBuilder } from "./PromptBuilder.js";
 import type {
@@ -358,6 +359,13 @@ export class EdgeWorker extends EventEmitter {
 			zulipMcpConfigs: resolveList(config.zulipMcpConfigs),
 			linearMcpConfigs: resolveList(config.linearMcpConfigs),
 			githubMcpConfigs: resolveList(config.githubMcpConfigs),
+			gitHooksDir: config.gitHooksDir
+				? resolvePath(config.gitHooksDir)
+				: undefined,
+			gitCredentialHelper: config.gitCredentialHelper
+				? resolvePath(config.gitCredentialHelper)
+				: undefined,
+			ghBinary: config.ghBinary ? resolvePath(config.ghBinary) : undefined,
 		};
 	}
 
@@ -506,6 +514,11 @@ export class EdgeWorker extends EventEmitter {
 		this.gitService = new GitService({
 			cyrusHome: this.cyrusHome,
 			untrustedWorktree: this.untrustedWorktree,
+			// SECURITY: GitServiceOptions.gitEnv and gitAllowFileProtocol are test-only
+			// and must never be wired from config or env.
+			gitHooksDir: this.config.gitHooksDir,
+			gitCredentialHelper: this.config.gitCredentialHelper,
+			ghBinary: this.config.ghBinary,
 		});
 
 		// Initialize AskUserQuestion handler for elicitation via Linear select signal
@@ -679,7 +692,10 @@ export class EdgeWorker extends EventEmitter {
 			this.toolPermissionResolver,
 			this.mcpConfigService,
 			this.runnerSelectionService,
-			{ untrustedWorktree: this.untrustedWorktree },
+			{
+				untrustedWorktree: this.untrustedWorktree,
+				gitEnv: this.gitService.gitEnv,
+			},
 		);
 		this.activityPoster = new ActivityPoster(
 			this.issueTrackers,
@@ -7110,6 +7126,52 @@ ${input.userComment}
 	}
 
 	/**
+	 * Parent-owned description of the session's git worktrees for the
+	 * parent-side hooks (Stop guardrail, intent-to-add, PR marker): the
+	 * configured repository path, the worktree path the parent created, the
+	 * admin dir name the parent recorded and the branch the parent created.
+	 * Nothing here is read from the workspace.
+	 */
+	private buildGitSessionTargets(
+		session: CyrusAgentSession,
+		fallbackRepository: RepositoryConfig,
+	): GitSessionTarget[] {
+		const workspace = session.workspace;
+		if (!workspace.isGitWorktree) return [];
+		// The branch the parent created (recorded at worktree add). Records from
+		// before it was recorded fall back to the sanitized session branch.
+		const branchFor = (repoId: string): string | undefined => {
+			const recorded = workspace.branchNames?.[repoId];
+			if (recorded) return recorded;
+			const raw = session.repositories?.find(
+				(r) => r.repositoryId === repoId,
+			)?.branchName;
+			return raw ? this.gitService.sanitizeBranchName(raw) : undefined;
+		};
+		const entries: Array<[string, string]> =
+			workspace.repoPaths && Object.keys(workspace.repoPaths).length > 0
+				? Object.entries(workspace.repoPaths)
+				: [[fallbackRepository.id, workspace.path]];
+		const targets: GitSessionTarget[] = [];
+		for (const [repoId, workspacePath] of entries) {
+			const repo = this.repositories.get(repoId) ?? fallbackRepository;
+			if (repo.id !== repoId) continue;
+			targets.push({
+				repositoryId: repoId,
+				repositoryPath: repo.repositoryPath,
+				workspacePath,
+				adminName: workspace.gitDirNames?.[repoId],
+				githubUrl: repo.githubUrl,
+				storeToken: repo.githubUrl
+					? this.githubTokenStore.getTokenForRepoUrl(repo.githubUrl)
+					: undefined,
+				branchName: branchFor(repoId),
+			});
+		}
+		return targets;
+	}
+
+	/**
 	 * Build agent runner configuration with common settings.
 	 * Delegates to RunnerConfigBuilder for shared config assembly.
 	 * @returns Object containing the runner config and runner type to use
@@ -7165,6 +7227,8 @@ ${input.userComment}
 				session.workspace,
 				repository,
 			),
+			gitTargets: this.buildGitSessionTargets(session, repository),
+			githubAppTokens: this.gitHubAppTokenProvider ?? undefined,
 			disallowedTools,
 			resumeSessionId,
 			labels,

@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
 	createAppJwt,
 	GitHubAppTokenProvider,
+	GitHubTokenMintError,
 } from "../src/GitHubAppTokenProvider.js";
 
 // Generate a test RSA key pair once for all tests
@@ -220,6 +221,78 @@ describe("GitHubAppTokenProvider", () => {
 			"https://github.example.com/api/v3/app/installations/67890/access_tokens",
 		);
 
+		fetchSpy.mockRestore();
+	});
+});
+
+describe("GitHubAppTokenProvider.getScopedToken", () => {
+	const jsonResponse = (token: string, status = 200) =>
+		new Response(
+			JSON.stringify({
+				token,
+				expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
+			}),
+			{ status, headers: { "Content-Type": "application/json" } },
+		);
+	const make = () =>
+		new GitHubAppTokenProvider({
+			appId: "12345",
+			installationId: "67890",
+			privateKeyPath: pemPath,
+		});
+	const opts = {
+		repositories: ["widgets"],
+		permissions: { pull_requests: "write" as const },
+	};
+
+	it("posts the repositories and permissions and caches per repo", async () => {
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async () => jsonResponse("ghs_scoped_widgets"));
+		const provider = make();
+		expect(await provider.getScopedToken(opts)).toBe("ghs_scoped_widgets");
+		expect(await provider.getScopedToken(opts)).toBe("ghs_scoped_widgets");
+		expect(fetchSpy).toHaveBeenCalledOnce();
+		const [url, init] = fetchSpy.mock.calls[0];
+		expect(url).toBe(
+			"https://api.github.com/app/installations/67890/access_tokens",
+		);
+		expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+			repositories: ["widgets"],
+			permissions: { pull_requests: "write" },
+		});
+		// A different repo is a different cache entry.
+		await provider.getScopedToken({ ...opts, repositories: ["gadgets"] });
+		expect(fetchSpy).toHaveBeenCalledTimes(2);
+		fetchSpy.mockRestore();
+	});
+
+	it("never reads or fills the full-installation token cache", async () => {
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementationOnce(async () => jsonResponse("ghs_scoped"))
+			.mockImplementationOnce(async () => jsonResponse("ghs_full"));
+		const provider = make();
+		await provider.getScopedToken(opts);
+		// getToken() still has to mint its own (unscoped) token.
+		expect(await provider.getToken()).toBe("ghs_full");
+		const [, init] = fetchSpy.mock.calls[1];
+		expect((init as RequestInit).body).toBeUndefined();
+		fetchSpy.mockRestore();
+	});
+
+	it("throws a status-only error on failure (e.g. 422 repo not in installation)", async () => {
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValueOnce(
+				new Response('{"message":"secret-ish body"}', { status: 422 }),
+			);
+		const err = await make()
+			.getScopedToken(opts)
+			.catch((e) => e);
+		expect(err).toBeInstanceOf(GitHubTokenMintError);
+		expect(err.status).toBe(422);
+		expect(err.message).not.toContain("secret-ish");
 		fetchSpy.mockRestore();
 	});
 });

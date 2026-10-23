@@ -51,6 +51,20 @@ export interface Workspace {
 	repoPaths?: Record<string, string>;
 	/** Maps repositoryId to resolved base branch with source info */
 	resolvedBaseBranches?: Record<string, BaseBranchResolution>;
+	/**
+	 * Maps repositoryId to the name of the linked worktree's admin directory
+	 * (`<repo>/.git/worktrees/<name>`), recorded by the parent at
+	 * `git worktree add` time. Parent-side git calls pin GIT_DIR from it
+	 * instead of discovering the repository from the (session-writable)
+	 * workspace.
+	 */
+	gitDirNames?: Record<string, string>;
+	/**
+	 * Maps repositoryId to the branch the parent actually created for the
+	 * worktree (sanitized or generated), as opposed to the raw Linear branch
+	 * name. Parent-side `gh` calls use it.
+	 */
+	branchNames?: Record<string, string>;
 }
 
 /**

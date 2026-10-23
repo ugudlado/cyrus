@@ -2,6 +2,7 @@ import { execSync, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import {
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	readdirSync,
 	readFileSync,
@@ -10,6 +11,7 @@ import {
 } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GitService } from "../src/GitService.js";
+import type { GitEnv } from "../src/gitEnv.js";
 
 vi.mock("node:child_process", () => ({
 	execSync: vi.fn(),
@@ -18,6 +20,11 @@ vi.mock("node:child_process", () => ({
 
 vi.mock("node:fs", () => ({
 	existsSync: vi.fn(() => true),
+	lstatSync: vi.fn(),
+	realpathSync: Object.assign(
+		vi.fn((p: string) => p),
+		{ native: vi.fn((p: string) => p) },
+	),
 	mkdirSync: vi.fn(),
 	readFileSync: vi.fn(() => ""),
 	readdirSync: vi.fn(() => []),
@@ -34,6 +41,43 @@ vi.mock("../src/WorktreeIncludeService.js", () => ({
 }));
 
 const mockExecSync = vi.mocked(execSync);
+
+/**
+ * GitService runs git through GitEnv (argv, pinned env). These unit tests stub
+ * the process layer: every git call is rendered as `git <argv>`
+ * and routed to mockExecSync, so the dispatchers below can match on it (non-flag operands quoted, as before). The
+ * pinning itself is covered by GitEnv.test.ts / GitEnv.evil-gitdir.test.ts.
+ */
+const stubAdminNames = new Map<string, string>();
+const stubGitEnv = {
+	repoScope: (repoPath: string) => ({ cwd: repoPath, env: {} }),
+	run: (inv: { cwd: string }, args: string[]) => {
+		const bare = new Set([
+			"rev-parse",
+			"worktree",
+			"list",
+			"add",
+			"remove",
+			"fetch",
+			"ls-remote",
+			"config",
+			"update-ref",
+			"merge-base",
+			"origin",
+		]);
+		const rendered = args
+			.map((a) => (a.startsWith("-") || bare.has(a) ? a : `"${a}"`))
+			.join(" ");
+		const out = mockExecSync(`git ${rendered}`, {
+			cwd: inv.cwd,
+		} as never);
+		return out === undefined || out === null ? "" : String(out);
+	},
+	trustedRemoteUrl: () => "https://example.test/o/r.git",
+	listAdminDirs: () => [] as string[],
+	resolveAdminName: (repo: string, ws: string) =>
+		stubAdminNames.get(`${repo}|${ws}`) ?? stubAdminNames.get(ws) ?? null,
+} as unknown as GitEnv;
 const mockSpawn = vi.mocked(spawn);
 const mockExistsSync = vi.mocked(existsSync);
 const mockMkdirSync = vi.mocked(mkdirSync);
@@ -89,12 +133,16 @@ describe("GitService", () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks();
+		stubAdminNames.clear();
 		delete process.env.CYRUS_WORKTREES_DIR;
 		delete process.env.SECRET_TOKEN;
 		vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 		vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 		mockSuccessfulSpawn();
-		gitService = new GitService({ cyrusHome: "/home/user/.cyrus" }, mockLogger);
+		gitService = new GitService(
+			{ cyrusHome: "/home/user/.cyrus", gitEnv: stubGitEnv },
+			mockLogger,
+		);
 	});
 
 	afterEach(() => {
@@ -284,23 +332,31 @@ describe("GitService", () => {
 				},
 			};
 
-		const installRevParseMock = () => {
-			mockExecSync.mockImplementation((cmd: any, opts: any) => {
-				const cmdStr = String(cmd);
-				const cwd = String(opts?.cwd ?? "");
-				const entry = metadataByCwd[cwd];
-				if (!entry) {
-					// Container dir / non-repo path: git rev-parse fails.
-					throw new Error("not a git repository");
+		// The pointers are read from the files (no git process runs in the
+		// session-writable workspace): `<ws>/.git` gitfile + `<gitDir>/commondir`.
+		const installPointerMock = (
+			entries: Record<string, { gitDir: string; commonDir: string }>,
+		) => {
+			vi.mocked(lstatSync).mockImplementation(((p: any) => {
+				const ws = String(p).replace(/\/\.git$/, "");
+				if (!entries[ws]) throw new Error("ENOENT");
+				return { isDirectory: () => false, isFile: () => true } as never;
+			}) as never);
+			mockReadFileSync.mockImplementation(((p: any) => {
+				const path = String(p);
+				const ws = path.replace(/\/\.git$/, "");
+				if (entries[ws] && path.endsWith("/.git")) {
+					return `gitdir: ${entries[ws].gitDir}\n`;
 				}
-				if (cmdStr.includes("--git-dir")) return `${entry.gitDir}\n`;
-				if (cmdStr.includes("--git-common-dir")) return `${entry.commonDir}\n`;
-				return "";
-			});
+				for (const e of Object.values(entries)) {
+					if (path === `${e.gitDir}/commondir`) return "../..\n";
+				}
+				throw new Error("ENOENT");
+			}) as never);
 		};
 
 		it("collects metadata dirs from every sub-worktree in a multi-repo workspace", () => {
-			installRevParseMock();
+			installPointerMock(metadataByCwd);
 
 			const result = gitService.getGitMetadataDirectoriesForWorkspace({
 				// Parent container is NOT a git repo (mkdirSync'd directory).
@@ -323,15 +379,11 @@ describe("GitService", () => {
 		});
 
 		it("resolves from workspace.path for single-repo workspaces", () => {
-			mockExecSync.mockImplementation((cmd: any, opts: any) => {
-				const cmdStr = String(cmd);
-				if (String(opts?.cwd) !== "/ws/ENG-2") {
-					throw new Error("not a git repository");
-				}
-				if (cmdStr.includes("--git-dir"))
-					return "/repos/repo-a/.git/worktrees/ENG-2\n";
-				if (cmdStr.includes("--git-common-dir")) return "/repos/repo-a/.git\n";
-				return "";
+			installPointerMock({
+				"/ws/ENG-2": {
+					gitDir: "/repos/repo-a/.git/worktrees/ENG-2",
+					commonDir: "/repos/repo-a/.git",
+				},
 			});
 
 			const result = gitService.getGitMetadataDirectoriesForWorkspace({
@@ -984,9 +1036,13 @@ describe("GitService", () => {
 	});
 
 	describe("createGitWorktree - stale worktree detection", () => {
-		it("prunes and recreates worktree when git lists it but directory has no .git file", async () => {
+		it("removes its own admin dir and recreates when git lists the worktree but the directory has no .git file", async () => {
 			const issue = makeIssue();
 			const repository = makeRepository();
+			stubAdminNames.set("/home/user/.cyrus/worktrees/ENG-97", "ENG-97");
+			vi.mocked(lstatSync).mockReturnValue({
+				isDirectory: () => true,
+			} as never);
 
 			mockExecSync.mockImplementation((cmd: any) => {
 				const cmdStr = String(cmd);
@@ -1033,11 +1089,46 @@ describe("GitService", () => {
 			expect(mockLogger.info).toHaveBeenCalledWith(
 				expect.stringContaining("Stale worktree entry found"),
 			);
-			// Should have run git worktree prune
-			expect(mockExecSync).toHaveBeenCalledWith("git worktree prune", {
-				cwd: "/home/user/repo",
-				stdio: "pipe",
+			// Only the parent's own validated admin dir is removed; git prune is
+			// never run (it acts on every admin dir, incl. other sessions').
+			expect(mockRmSync).toHaveBeenCalledWith(
+				"/home/user/repo/.git/worktrees/ENG-97",
+				{ recursive: true, force: true },
+			);
+			const cmds = mockExecSync.mock.calls.map((c) => String(c[0]));
+			expect(
+				cmds.some((c) => c.includes("prune") && !c.includes("--prune")),
+			).toBe(false);
+			expect(cmds.find((c) => c.includes("git worktree add"))).not.toContain(
+				" -f",
+			);
+		});
+
+		it("re-adds with --force when the stale registration's admin dir cannot be resolved", async () => {
+			mockExecSync.mockImplementation((cmd: any) => {
+				const cmdStr = String(cmd);
+				if (cmdStr === "git rev-parse --git-dir") return Buffer.from(".git\n");
+				if (cmdStr === "git worktree list --porcelain") {
+					return `worktree /home/user/repo\nHEAD abc123\nbranch refs/heads/main\n\nworktree /home/user/.cyrus/worktrees/ENG-97\nHEAD def456\nbranch refs/heads/x\n`;
+				}
+				if (cmdStr.includes("git rev-parse --verify")) throw new Error("none");
+				if (cmdStr.includes("git ls-remote")) {
+					return Buffer.from("abc123\trefs/heads/main\n");
+				}
+				return Buffer.from("");
 			});
+			mockExistsSync.mockImplementation(
+				(path: any) =>
+					String(path) !== "/home/user/.cyrus/worktrees/ENG-97/.git",
+			);
+
+			await gitService.createGitWorktree(makeIssue(), [makeRepository()]);
+
+			const cmds = mockExecSync.mock.calls.map((c) => String(c[0]));
+			expect(cmds.find((c) => c.includes("git worktree add"))).toContain(
+				"worktree add -f",
+			);
+			expect(mockRmSync).not.toHaveBeenCalled();
 		});
 
 		it("does not match substring paths in worktree list", async () => {
@@ -1122,17 +1213,25 @@ describe("GitService", () => {
 			});
 
 			mockExecSync.mockReturnValue(Buffer.from(""));
+			stubAdminNames.set("/home/user/.cyrus/worktrees/DEF-123", "DEF-123");
 
-			await gitService.deleteWorktree("DEF-123");
+			await gitService.deleteWorktree("DEF-123", {
+				repositories: [
+					makeRepository({
+						id: "a",
+						name: "my-repo",
+						repositoryPath: "/home/user/repos/my-repo",
+					}),
+				],
+			});
 
-			// Should run git worktree remove with cwd set to the main repo
+			// Should run git worktree remove with cwd set to the configured repo
 			expect(mockExecSync).toHaveBeenCalledWith(
 				'git worktree remove --force "/home/user/.cyrus/worktrees/DEF-123"',
-				expect.objectContaining({
-					stdio: "pipe",
-					cwd: "/home/user/repos/my-repo",
-				}),
+				expect.objectContaining({ cwd: "/home/user/repos/my-repo" }),
 			);
+			const cmds = mockExecSync.mock.calls.map((c) => String(c[0]));
+			expect(cmds.some((c) => c.includes("prune"))).toBe(false);
 
 			// Should delete the directory
 			expect(mockRmSync).toHaveBeenCalledWith(
@@ -1186,23 +1285,38 @@ describe("GitService", () => {
 			] as any);
 
 			mockExecSync.mockReturnValue(Buffer.from(""));
+			stubAdminNames.set(
+				"/home/user/repos/repo-a|/home/user/.cyrus/worktrees/DEF-123/repo-a",
+				"DEF-123",
+			);
+			stubAdminNames.set(
+				"/home/user/repos/repo-b|/home/user/.cyrus/worktrees/DEF-123/repo-b",
+				"DEF-123",
+			);
 
-			await gitService.deleteWorktree("DEF-123");
+			await gitService.deleteWorktree("DEF-123", {
+				repositories: [
+					makeRepository({
+						id: "a",
+						name: "repo-a",
+						repositoryPath: "/home/user/repos/repo-a",
+					}),
+					makeRepository({
+						id: "b",
+						name: "repo-b",
+						repositoryPath: "/home/user/repos/repo-b",
+					}),
+				],
+			});
 
 			// Should run git worktree remove for both subdirectories with correct cwd
 			expect(mockExecSync).toHaveBeenCalledWith(
 				'git worktree remove --force "/home/user/.cyrus/worktrees/DEF-123/repo-a"',
-				expect.objectContaining({
-					stdio: "pipe",
-					cwd: "/home/user/repos/repo-a",
-				}),
+				expect.objectContaining({ cwd: "/home/user/repos/repo-a" }),
 			);
 			expect(mockExecSync).toHaveBeenCalledWith(
 				'git worktree remove --force "/home/user/.cyrus/worktrees/DEF-123/repo-b"',
-				expect.objectContaining({
-					stdio: "pipe",
-					cwd: "/home/user/repos/repo-b",
-				}),
+				expect.objectContaining({ cwd: "/home/user/repos/repo-b" }),
 			);
 
 			// Should delete the directory
@@ -1240,8 +1354,17 @@ describe("GitService", () => {
 			mockExecSync.mockImplementation(() => {
 				throw new Error("git worktree remove failed");
 			});
+			stubAdminNames.set("/home/user/.cyrus/worktrees/DEF-123", "DEF-123");
 
-			await gitService.deleteWorktree("DEF-123");
+			await gitService.deleteWorktree("DEF-123", {
+				repositories: [
+					makeRepository({
+						id: "a",
+						name: "my-repo",
+						repositoryPath: "/home/user/repos/my-repo",
+					}),
+				],
+			});
 
 			// Should still attempt to delete the directory despite git failure
 			expect(mockRmSync).toHaveBeenCalledWith(
@@ -1332,6 +1455,7 @@ describe("GitService", () => {
 			});
 
 			mockExecSync.mockReturnValue(Buffer.from(""));
+			stubAdminNames.set("/home/user/.cyrus/worktrees/DEF-123", "DEF-123");
 
 			await gitService.deleteWorktree("DEF-123", {
 				repositories: [makeRepo("a", "repo-a", "/home/user/repos/repo-a")],

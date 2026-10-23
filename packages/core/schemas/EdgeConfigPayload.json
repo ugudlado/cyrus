@@ -1086,6 +1086,15 @@
 			},
 			"required": ["httpProxyPort", "socksProxyPort"],
 			"additionalProperties": false
+		},
+		"gitHooksDir": {
+			"type": "string"
+		},
+		"gitCredentialHelper": {
+			"type": "string"
+		},
+		"ghBinary": {
+			"type": "string"
 		}
 	},
 	"required": ["repositories"],
