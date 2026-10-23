@@ -108,6 +108,7 @@ describe("tenants", () => {
 	const repos = ["a", "b"].map((id) => ({
 		...baseRepository,
 		id: `repo-${id}`,
+		linearWorkspaceId: `ws-${id}`,
 	}));
 
 	it("is optional and parses a valid tenant list", () => {
@@ -138,6 +139,26 @@ describe("tenants", () => {
 		expect(problems).toContain("linearWorkspaceId already used");
 		expect(problems).toContain("slack.teamId already used");
 		expect(problems).toContain('repository "nope" does not exist');
+	});
+
+	it("rejects a repository whose Linear workspace differs from its tenant's", () => {
+		const cfg = EdgeConfigSchema.parse({
+			repositories: repos,
+			tenants: [tenant("a", { repositoryIds: ["repo-a", "repo-b"] })],
+		});
+		expect(validateTenants(cfg)).toEqual([
+			'tenant "a": repository "repo-b" is in a different Linear workspace than the tenant',
+		]);
+	});
+
+	it("says so when a tenant's repository has no linearWorkspaceId", () => {
+		const cfg = {
+			repositories: [{ id: "repo-a" }],
+			tenants: [tenant("a")],
+		} as never;
+		expect(validateTenants(cfg)).toEqual([
+			'tenant "a": repository "repo-a" has no linearWorkspaceId',
+		]);
 	});
 
 	it("rejects a repository owned by two tenants", () => {

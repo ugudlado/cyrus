@@ -1176,12 +1176,14 @@ describe("LiveChatRepositoryProvider with tenants", () => {
 		expect(provider.getDefaultLinearWorkspaceId("lapse")).toBe("ws-lapse");
 	});
 
-	it("an unknown tenant sees nothing; no tenant id sees everything", () => {
+	it("an unknown tenant sees nothing; with tenants configured so does an untagged event", () => {
 		const provider = setup();
 		expect(provider.getRepositoryPaths("ghost")).toEqual([]);
 		expect(provider.getDefaultRepository("ghost")).toBeUndefined();
 		expect(provider.getDefaultLinearWorkspaceId("ghost")).toBeUndefined();
-		expect(provider.getRepositoryPaths()).toHaveLength(3);
+		expect(provider.getRepositoryPaths()).toEqual([]);
+		expect(provider.getDefaultRepository()).toBeUndefined();
+		expect(provider.getDefaultLinearWorkspaceId()).toBeUndefined();
 	});
 });
 

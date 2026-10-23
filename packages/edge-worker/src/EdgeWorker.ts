@@ -713,6 +713,7 @@ export class EdgeWorker extends EventEmitter {
 			repositories: this.repositories,
 			issueTrackers: this.issueTrackers,
 			gitService: this.gitService,
+			tenantRegistry: this.tenantRegistry,
 		});
 		this.defaultSkillsDeployer = new DefaultSkillsDeployer(
 			this.cyrusHome,
@@ -926,6 +927,13 @@ export class EdgeWorker extends EventEmitter {
 			const useDirectWebhooks =
 				process.env.LINEAR_DIRECT_WEBHOOKS?.toLowerCase() === "true";
 			const verificationMode = useDirectWebhooks ? "direct" : "proxy";
+			if (this.tenantRegistry.enabled && !useDirectWebhooks) {
+				// The constructor already refuses this; kept as a loud backstop
+				// because untagged events get no repositories.
+				this.logger.warn(
+					'Tenants are configured but LINEAR_DIRECT_WEBHOOKS is not "true": events would carry no tenant and see no repositories',
+				);
+			}
 
 			// Tenant mode (direct webhooks only): one webhook secret per tenant
 			const tenantSecrets =
@@ -956,14 +964,8 @@ export class EdgeWorker extends EventEmitter {
 
 			// Listen for legacy webhook events (deprecated, kept for backward compatibility)
 			this.linearEventTransport.on("event", (event: AgentEvent, tenantId) => {
-				let repos = Array.from(this.repositories.values());
-				if (tenantId !== undefined) {
-					// Only the matched tenant's repositories may handle this event
-					const owned = new Set(
-						this.tenantRegistry.byId(tenantId)?.repositoryIds ?? [],
-					);
-					repos = repos.filter((repo) => owned.has(repo.id));
-				}
+				// Only the matched tenant's repositories may handle this event
+				const repos = this.reposForTenant(tenantId);
 				this.handleWebhook(event as unknown as Webhook, repos);
 			});
 
@@ -1305,17 +1307,29 @@ export class EdgeWorker extends EventEmitter {
 			return;
 		}
 
+		// Zulip is configured from one set of env vars and its events carry no
+		// tenant, so it can not be scoped to a tenant's repositories. With
+		// tenants configured it would show every tenant's repositories to every
+		// Zulip user and grant read access to all of them: fail closed.
+		if (this.tenantRegistry.enabled) {
+			this.logger.warn(
+				"Zulip is disabled because tenants are configured (ZULIP_SITE, ZULIP_BOT_EMAIL, ZULIP_API_KEY and ZULIP_WEBHOOK_TOKEN are set but Zulip events have no tenant)",
+			);
+			return;
+		}
+
 		const chatRepositoryProvider = new LiveChatRepositoryProvider(
 			this.repositories,
 			() => this.config.linearWorkspaces || {},
+			this.tenantRegistry,
 		);
 
 		const zulipAdapter = new ZulipChatAdapter(
 			chatRepositoryProvider,
 			this.logger,
 			{
-				repositoryRoutingContext:
-					this.promptBuilder.generateRoutingContextForAllWorkspaces(),
+				repositoryRoutingContext: (tenantId) =>
+					this.chatRoutingContext(tenantId),
 			},
 		);
 
@@ -1355,10 +1369,82 @@ export class EdgeWorker extends EventEmitter {
 	}
 
 	/**
+	 * Routing context shown in a chat session's system prompt. With tenants
+	 * configured it is built from the event tenant's repositories only; an
+	 * untagged event or unknown tenant gets nothing. Without tenants it is the
+	 * unscoped context.
+	 */
+	private chatRoutingContext(tenantId?: string): string {
+		if (this.tenantRegistry.enabled) {
+			return tenantId === undefined
+				? ""
+				: this.promptBuilder.generateRoutingContextForTenant(tenantId);
+		}
+		return this.promptBuilder.generateRoutingContextForAllWorkspaces();
+	}
+
+	/**
+	 * Repositories that may handle an event for a tenant. No tenant id means
+	 * no tenant filtering only when tenants are not configured.
+	 */
+	private reposForTenant(tenantId?: string): RepositoryConfig[] {
+		if (tenantId === undefined) {
+			return this.tenantRegistry.enabled
+				? []
+				: Array.from(this.repositories.values());
+		}
+		const owned = new Set(
+			this.tenantRegistry.byId(tenantId)?.repositoryIds ?? [],
+		);
+		return Array.from(this.repositories.values()).filter((repo) =>
+			owned.has(repo.id),
+		);
+	}
+
+	/**
+	 * Repositories for a Linear workspace (webhook `organizationId`): all of
+	 * them without tenants, otherwise only the owning tenant's.
+	 */
+	private reposForWorkspace(workspaceId: string): RepositoryConfig[] {
+		if (!this.tenantRegistry.enabled) {
+			return Array.from(this.repositories.values());
+		}
+		const tenant = this.tenantRegistry.byLinearWorkspaceId(workspaceId);
+		return tenant ? this.reposForTenant(tenant.id) : [];
+	}
+
+	/**
 	 * Register the Slack event transport for receiving forwarded Slack webhooks from CYHOST.
 	 * This creates a /slack-webhook endpoint that handles @mention events from Slack.
 	 */
 	private registerSlackEventTransport(): void {
+		// Use direct Slack signature verification only when BOTH:
+		// 1. SLACK_SIGNING_SECRET is set (we have the secret to verify)
+		// 2. CYRUS_HOST_EXTERNAL is true (self-hosted: Slack sends directly to us)
+		// On cloud droplets, CYHOST forwards webhooks with Bearer token auth
+		// (it verifies the Slack signature itself and doesn't forward the headers).
+		const isExternalHost =
+			process.env.CYRUS_HOST_EXTERNAL?.toLowerCase().trim() === "true";
+		const hasSlackSigningSecret =
+			process.env.SLACK_SIGNING_SECRET != null &&
+			process.env.SLACK_SIGNING_SECRET !== "";
+		// Tenant mode: one Slack app per tenant that has `slack`; the global
+		// SLACK_SIGNING_SECRET is not consulted.
+		const slackTenants = this.tenantRegistry
+			.list()
+			.filter((tenant) => tenant.slack !== undefined);
+		const useTenantSlack = isExternalHost && slackTenants.length > 0;
+
+		// With tenants configured, every Slack event must arrive through a
+		// tenant's own Slack app so it carries a tenant id. A shared (untagged)
+		// Slack transport would see no repositories at all, so refuse it.
+		if (this.tenantRegistry.enabled && !useTenantSlack) {
+			this.logger.warn(
+				"Slack event transport not registered: tenants are configured but Slack is not in tenant mode (needs CYRUS_HOST_EXTERNAL=true and a slack section on a tenant; the shared SLACK_SIGNING_SECRET / CYRUS_API_KEY transport is not tenant-aware)",
+			);
+			return;
+		}
+
 		// Live provider reads from the repository map on demand — no snapshot needed
 		const chatRepositoryProvider = new LiveChatRepositoryProvider(
 			this.repositories,
@@ -1366,8 +1452,6 @@ export class EdgeWorker extends EventEmitter {
 			this.tenantRegistry,
 		);
 
-		const routingContext =
-			this.promptBuilder.generateRoutingContextForAllWorkspaces();
 		// Only managed teams (cloud or self-hosted, paired with cyrus-hosted)
 		// have a Behaviours page where automatic Slack thread listening can be
 		// turned off — CYRUS_API_KEY is proof of that pairing, so the
@@ -1379,12 +1463,19 @@ export class EdgeWorker extends EventEmitter {
 		const slackAdapter = new SlackChatAdapter(
 			chatRepositoryProvider,
 			this.logger,
-			{ repositoryRoutingContext: routingContext, cyrusAppBaseUrl },
+			{
+				// Resolved per event tenant when the prompt is built (and live).
+				repositoryRoutingContext: (tenantId) =>
+					this.chatRoutingContext(tenantId),
+				cyrusAppBaseUrl,
+			},
 		);
 
+		// Tenant mode has no global default: each event resolves its own tenant.
 		if (
-			!chatRepositoryProvider.getDefaultLinearWorkspaceId() ||
-			!chatRepositoryProvider.getDefaultRepository()
+			!this.tenantRegistry.enabled &&
+			(!chatRepositoryProvider.getDefaultLinearWorkspaceId() ||
+				!chatRepositoryProvider.getDefaultRepository())
 		) {
 			this.logger.warn(
 				"No repositories or workspaces configured — Slack sessions will not have access to MCP tools",
@@ -1402,22 +1493,6 @@ export class EdgeWorker extends EventEmitter {
 			this.logger,
 		);
 
-		// Use direct Slack signature verification only when BOTH:
-		// 1. SLACK_SIGNING_SECRET is set (we have the secret to verify)
-		// 2. CYRUS_HOST_EXTERNAL is true (self-hosted: Slack sends directly to us)
-		// On cloud droplets, CYHOST forwards webhooks with Bearer token auth
-		// (it verifies the Slack signature itself and doesn't forward the headers).
-		const isExternalHost =
-			process.env.CYRUS_HOST_EXTERNAL?.toLowerCase().trim() === "true";
-		const hasSlackSigningSecret =
-			process.env.SLACK_SIGNING_SECRET != null &&
-			process.env.SLACK_SIGNING_SECRET !== "";
-		// Tenant mode: one Slack app per tenant that has `slack`; the global
-		// SLACK_SIGNING_SECRET is not consulted.
-		const slackTenants = this.tenantRegistry
-			.list()
-			.filter((tenant) => tenant.slack !== undefined);
-		const useTenantSlack = isExternalHost && slackTenants.length > 0;
 		const useDirectSlackWebhooks =
 			useTenantSlack || (isExternalHost && hasSlackSigningSecret);
 
@@ -2105,13 +2180,16 @@ Your base branch \`${branchName}\` has received ${commitCount} new commit(s). Co
 	private findRepositoryByGitHubUrl(
 		repoFullName: string,
 	): RepositoryConfig | null {
+		// Exact match on the trailing /owner/repo (case-insensitive, optional
+		// .git): "org/app" must not match "org/app-two".
+		const wanted = `/${repoFullName.replace(/\.git$/i, "").toLowerCase()}`;
 		for (const repo of this.repositories.values()) {
 			if (!repo.githubUrl) continue;
-			// Match against full name (owner/repo) or URL containing it
-			if (
-				repo.githubUrl.includes(repoFullName) ||
-				repo.githubUrl.endsWith(`/${repoFullName}`)
-			) {
+			const url = repo.githubUrl
+				.replace(/\/+$/, "")
+				.replace(/\.git$/i, "")
+				.toLowerCase();
+			if (url.endsWith(wanted)) {
 				return repo;
 			}
 		}
@@ -2684,12 +2762,16 @@ ${taskSection}`;
 	private findRepositoryByGitLabUrl(
 		projectPath: string,
 	): RepositoryConfig | null {
+		// Exact match on the trailing /group/(subgroup/)project, case-insensitive,
+		// optional .git (same rule as findRepositoryByGitHubUrl).
+		const wanted = `/${projectPath.replace(/\.git$/i, "").toLowerCase()}`;
 		for (const repo of this.repositories.values()) {
 			if (!repo.gitlabUrl) continue;
-			if (
-				repo.gitlabUrl.includes(projectPath) ||
-				repo.gitlabUrl.endsWith(`/${projectPath}`)
-			) {
+			const url = repo.gitlabUrl
+				.replace(/\/+$/, "")
+				.replace(/\.git$/i, "")
+				.toLowerCase();
+			if (url.endsWith(wanted)) {
 				return repo;
 			}
 		}
@@ -5664,7 +5746,7 @@ ${taskSection}`;
 			// Second fallback: re-route via repository router
 			if (!repositories || repositories.length === 0) {
 				try {
-					const repos = Array.from(this.repositories.values());
+					const repos = this.reposForWorkspace(webhook.organizationId);
 					const routingResult =
 						await this.repositoryRouter.determineRepositoryForWebhook(
 							webhook,

@@ -55,7 +55,8 @@ export class SlackChatAdapter
 {
 	readonly platformName = "slack" as const;
 	private repositoryProvider: ChatRepositoryProvider;
-	private repositoryRoutingContext: string;
+	/** Resolved per event tenant at prompt-build time. */
+	private repositoryRoutingContext: (tenantId?: string) => string;
 	private behavioursPageUrl: string;
 	private logger: ILogger;
 	/** Cached per Slack team id: each tenant's bot has its own identity. */
@@ -65,7 +66,11 @@ export class SlackChatAdapter
 		repositoryProvider: ChatRepositoryProvider,
 		logger?: ILogger,
 		options?: {
-			repositoryRoutingContext?: string;
+			/**
+			 * Routing-context XML for the event's tenant. A plain string is
+			 * accepted for callers that have one fixed context.
+			 */
+			repositoryRoutingContext?: string | ((tenantId?: string) => string);
 			/**
 			 * Base URL of the hosted Cyrus app (e.g. https://app.atcyrus.com).
 			 * Only set for managed teams — community members have no Behaviours
@@ -77,8 +82,9 @@ export class SlackChatAdapter
 		},
 	) {
 		this.repositoryProvider = repositoryProvider;
+		const routing = options?.repositoryRoutingContext;
 		this.repositoryRoutingContext =
-			options?.repositoryRoutingContext?.trim() || "";
+			typeof routing === "function" ? routing : () => routing ?? "";
 		const appBaseUrl = options?.cyrusAppBaseUrl?.trim().replace(/\/+$/, "");
 		this.behavioursPageUrl = appBaseUrl
 			? `${appBaseUrl}${BEHAVIOURS_PAGE_ROUTE}`
@@ -158,6 +164,7 @@ export class SlackChatAdapter
 	}
 
 	buildSystemPrompt(event: SlackWebhookEvent): string {
+		const routingContext = this.repositoryRoutingContext(event.tenantId).trim();
 		const repositoryPaths = Array.from(
 			new Set(
 				this.repositoryProvider
@@ -214,7 +221,7 @@ ${repositoryPaths.map((path) => `- ${path}`).join("\n")}
 - You can answer questions, provide analysis, help with planning, and assist with research
 - If files need to be created or examined, they will be in your working directory
 ${repositoryAccessSection}
-${this.repositoryRoutingContext ? `\n\n${this.repositoryRoutingContext}` : ""}
+${routingContext ? `\n\n${routingContext}` : ""}
 
 ## Self-Knowledge
 - If the user asks about your capabilities, features, how you work, what you can do, setup instructions, or anything related to Cyrus documentation, use the \`mcp__cyrus-docs__search_documentation\` tool to look up the answer from the official Cyrus docs.

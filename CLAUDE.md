@@ -450,6 +450,7 @@ The agent automatically moves issues to the "started" state when assigned. Linea
    - `packages/edge-worker/src/SlackChatAdapter.ts` — Builds the Slack chat system prompt including orchestration notes with repo routing syntax
    - `packages/edge-worker/src/ZulipChatAdapter.ts` — Same, for the Zulip chat system prompt
    - `packages/edge-worker/src/ActivityPoster.ts` — Posts routing activities to Linear timeline (method display names, formatting)
+   - Chat routing context (`<repository_routing_context>` in Slack/Zulip prompts) is resolved per event tenant at prompt-build time from that tenant's `repositoryIds` (`PromptBuilder.generateRoutingContextForTenant`); the block text is unchanged, only its membership is scoped. With tenants configured an untagged event sees no repositories, and Zulip (no tenant on its events) is not registered.
 
 9. **Adding a new top-level `EdgeWorkerConfig` field**: Adding a property to the `EdgeConfigSchema` Zod schema in `packages/core/src/config-schemas.ts` is **not enough** to make it available at runtime. Two hand-maintained copy sites exist, and both now have guardrails that fail fast when a field is missed (added after `strictMcpConfig` was silently dropped in CYPACK-1478; `slackAllowedTools` & friends were dropped the same way in CYHOST-967):
 

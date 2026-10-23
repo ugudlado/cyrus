@@ -8,8 +8,10 @@ import type { RepositoryConfig, TenantRegistry } from "cyrus-core";
  * a session is built — no refresh/notification wiring needed.
  *
  * Every method takes the event's tenant id. With a tenant, only that tenant's
- * repositories and workspace are visible; without one (single-tenant
- * deployments, or events not tagged with a tenant) everything is.
+ * repositories and workspace are visible. Without one, everything is visible
+ * ONLY when no tenants are configured; once tenants are configured an untagged
+ * event sees nothing (fail closed: it must never see every tenant's
+ * repositories).
  */
 export interface ChatRepositoryProvider {
 	/** Current repository paths available for chat sessions */
@@ -40,6 +42,7 @@ export class LiveChatRepositoryProvider implements ChatRepositoryProvider {
 	 */
 	private reposFor(tenantId?: string): RepositoryConfig[] {
 		if (tenantId === undefined) {
+			if (this.tenantRegistry?.enabled) return [];
 			return Array.from(this.repositories.values());
 		}
 		const tenant = this.tenantRegistry?.byId(tenantId);
@@ -58,6 +61,9 @@ export class LiveChatRepositoryProvider implements ChatRepositoryProvider {
 	}
 
 	getDefaultLinearWorkspaceId(tenantId?: string): string | undefined {
+		if (tenantId === undefined && this.tenantRegistry?.enabled) {
+			return undefined;
+		}
 		if (tenantId !== undefined) {
 			const workspaceId =
 				this.tenantRegistry?.byId(tenantId)?.linearWorkspaceId;

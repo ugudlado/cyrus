@@ -5,6 +5,7 @@ import { AgentSessionManager } from "../src/AgentSessionManager.js";
 import { EdgeWorker } from "../src/EdgeWorker.js";
 import { SharedApplicationServer } from "../src/SharedApplicationServer.js";
 import type { EdgeWorkerConfig, RepositoryConfig } from "../src/types.js";
+import { expectedRoutingBlock } from "./helpers/routingBlock.js";
 import { TEST_CYRUS_HOME } from "./test-dirs.js";
 
 vi.mock("fs/promises");
@@ -189,5 +190,131 @@ describe("EdgeWorker tenants", () => {
 		expect(handleWebhook.mock.calls[1][1].map((r: any) => r.id)).toEqual([
 			"lap",
 		]);
+	});
+
+	describe("tenant-scoped chat prompts", () => {
+		const withUrl = (id: string, ws: string, url: string) => ({
+			...repo(id, ws),
+			githubUrl: url,
+		});
+		const configWithUrls = () =>
+			makeConfig({
+				repositories: [
+					withUrl("jus", "ws-a", "https://github.com/org-a/app"),
+					withUrl("cyr", "ws-a", "https://github.com/org-a/app-two"),
+					withUrl("lap", "ws-b", "https://github.com/org-b/solo"),
+				],
+			});
+
+		it("builds a tenant's chat routing context from its own repositories; untagged and unknown get nothing", () => {
+			const worker = new EdgeWorker(configWithUrls());
+			const ctx = (id?: string) => (worker as any).chatRoutingContext(id);
+			// Tenant order (jus, cyr); the representative repository is first by name.
+			expect(ctx("a")).toBe(
+				expectedRoutingBlock([
+					{ name: "jus", githubUrl: "https://github.com/org-a/app" },
+					{
+						name: "cyr",
+						githubUrl: "https://github.com/org-a/app-two",
+						current: true,
+					},
+				]),
+			);
+			// Single-repo tenant: no routing needed. Unknown / untagged: nothing.
+			expect(ctx("b")).toBe("");
+			expect(ctx("ghost")).toBe("");
+			expect(ctx(undefined)).toBe("");
+		});
+
+		it("without tenants the chat routing context is the unscoped one", () => {
+			const cfg = configWithUrls();
+			const worker = new EdgeWorker({
+				...cfg,
+				tenants: undefined,
+				repositories: cfg.repositories.map((r) => ({
+					...r,
+					linearWorkspaceId: "ws-a",
+				})),
+			} as EdgeWorkerConfig);
+			const out = (worker as any).chatRoutingContext(undefined);
+			expect(out).toContain("https://github.com/org-a/app-two");
+			expect(out).toContain("https://github.com/org-b/solo");
+		});
+
+		it("reposForWorkspace returns only the owning tenant's repositories", () => {
+			const worker = new EdgeWorker(makeConfig());
+			const ids = (ws: string) =>
+				(worker as any).reposForWorkspace(ws).map((r: any) => r.id);
+			expect(ids("ws-a")).toEqual(["jus", "cyr"]);
+			expect(ids("ws-b")).toEqual(["lap"]);
+			expect(ids("ws-unknown")).toEqual([]);
+			expect((worker as any).reposForTenant(undefined)).toEqual([]);
+		});
+
+		it("does not register Zulip when tenants are configured, and warns naming env vars only", () => {
+			vi.stubEnv("ZULIP_SITE", "https://zulip.example.test");
+			vi.stubEnv("ZULIP_BOT_EMAIL", "bot@example.test");
+			vi.stubEnv("ZULIP_API_KEY", "zulip-secret-value");
+			vi.stubEnv("ZULIP_WEBHOOK_TOKEN", "zulip-token-value");
+			const worker = new EdgeWorker(makeConfig());
+			const warn = vi.spyOn((worker as any).logger, "warn");
+			(worker as any).registerZulipEventTransport();
+			expect((worker as any).zulipEventTransport).toBeNull();
+			expect((worker as any).zulipChatSessionHandler).toBeNull();
+			expect(warn).toHaveBeenCalledOnce();
+			const message = String(warn.mock.calls[0]?.[0]);
+			expect(message).toContain("ZULIP_SITE");
+			expect(message).not.toContain("zulip-secret-value");
+			expect(message).not.toContain("zulip-token-value");
+		});
+
+		it("does not register the shared Slack transport when no tenant has a slack section", () => {
+			const worker = new EdgeWorker(makeConfig());
+			const warn = vi.spyOn((worker as any).logger, "warn");
+			(worker as any).registerSlackEventTransport();
+			expect((worker as any).slackEventTransport).toBeNull();
+			expect((worker as any).chatSessionHandler).toBeNull();
+			expect(String(warn.mock.calls[0]?.[0])).toContain(
+				"Slack event transport not registered",
+			);
+			expect(String(warn.mock.calls[0]?.[0])).toContain("CYRUS_HOST_EXTERNAL");
+		});
+
+		it("findRepositoryByGitLabUrl matches the exact trailing project path only", () => {
+			const cfg = configWithUrls();
+			const worker = new EdgeWorker({
+				...cfg,
+				repositories: [
+					{
+						...cfg.repositories[0],
+						gitlabUrl: "https://gitlab.com/grp/sub/app",
+					},
+					{
+						...cfg.repositories[1],
+						gitlabUrl: "https://gitlab.com/grp/sub/app-two.git",
+					},
+					cfg.repositories[2],
+				],
+			} as EdgeWorkerConfig);
+			const find = (path: string) =>
+				(worker as any).findRepositoryByGitLabUrl(path)?.id ?? null;
+			expect(find("grp/sub/app")).toBe("jus");
+			expect(find("GRP/Sub/App-Two")).toBe("cyr");
+			expect(find("sub/app")).toBe("jus");
+			expect(find("grp/sub/ap")).toBeNull();
+			expect(find("b/app")).toBeNull();
+		});
+
+		it("findRepositoryByGitHubUrl matches the exact trailing owner/repo only", () => {
+			const worker = new EdgeWorker(configWithUrls());
+			const find = (name: string) =>
+				(worker as any).findRepositoryByGitHubUrl(name)?.id ?? null;
+			expect(find("org-a/app")).toBe("jus");
+			expect(find("ORG-A/App-Two")).toBe("cyr");
+			expect(find("org-a/app.git")).toBe("jus");
+			expect(find("org-a/ap")).toBeNull();
+			expect(find("g-a/app")).toBeNull();
+			expect(find("other/app")).toBeNull();
+		});
 	});
 });

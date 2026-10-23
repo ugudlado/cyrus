@@ -362,6 +362,12 @@ export const RepositoryConfigSchema = z.object({
 	// Git configuration
 	repositoryPath: z.string(),
 	baseBranch: z.string(),
+	/**
+	 * Repository URL in the https form, e.g. `https://github.com/owner/repo`.
+	 * Routing hints (`[repo=owner/repo]`) and GitHub webhook matching strip the
+	 * `https://github.com/` prefix and match the trailing `/owner/repo`, so
+	 * `git@github.com:` or other forms are not matched.
+	 */
 	githubUrl: z.string().optional(),
 	gitlabUrl: z.string().optional(),
 

@@ -11,6 +11,7 @@ import {
 	type IssueMinimal,
 	type RepositoryConfig,
 	requireLinearWorkspaceId,
+	type TenantRegistry,
 	type WebhookAgentSession,
 	type WebhookComment,
 } from "cyrus-core";
@@ -24,6 +25,12 @@ export interface PromptBuilderDeps {
 	repositories: Map<string, RepositoryConfig>;
 	issueTrackers: Map<string, IIssueTrackerService>;
 	gitService: GitService;
+	/**
+	 * When tenants are configured, routing context is built from the current
+	 * repository's TENANT (its `repositoryIds`), never expanded from all
+	 * repositories by workspace.
+	 */
+	tenantRegistry?: TenantRegistry;
 }
 
 /**
@@ -60,12 +67,14 @@ export class PromptBuilder {
 	private readonly repositories: Map<string, RepositoryConfig>;
 	private readonly issueTrackers: Map<string, IIssueTrackerService>;
 	private readonly gitService: GitService;
+	private readonly tenantRegistry?: TenantRegistry;
 
 	constructor(deps: PromptBuilderDeps) {
 		this.logger = deps.logger;
 		this.repositories = deps.repositories;
 		this.issueTrackers = deps.issueTrackers;
 		this.gitService = deps.gitService;
+		this.tenantRegistry = deps.tenantRegistry;
 	}
 
 	// ========================================================================
@@ -526,6 +535,45 @@ export class PromptBuilder {
 	 * @returns XML-formatted routing context strings joined by blank lines,
 	 * or empty string when there is no multi-repo routing needed.
 	 */
+	/**
+	 * Repositories of the tenant that owns `repository`, in the tenant's
+	 * declared order, or undefined when tenants are not configured. A
+	 * repository owned by no tenant sees only itself (no routing).
+	 */
+	private tenantRepositories(
+		repository: RepositoryConfig,
+	): RepositoryConfig[] | undefined {
+		const registry = this.tenantRegistry;
+		if (!registry?.enabled) return undefined;
+		const tenant = registry.byRepositoryId(repository.id);
+		if (!tenant) return [repository];
+		return this.resolveRepositoryIds(tenant.repositoryIds);
+	}
+
+	private resolveRepositoryIds(ids: readonly string[]): RepositoryConfig[] {
+		return ids
+			.map((id) => this.repositories.get(id))
+			.filter((repo): repo is RepositoryConfig => repo !== undefined);
+	}
+
+	/**
+	 * Routing context for ONE tenant's chat sessions, built from that tenant's
+	 * `repositoryIds` only. An unknown tenant id yields "" (fail closed).
+	 */
+	generateRoutingContextForTenant(tenantId: string): string {
+		const tenant = this.tenantRegistry?.byId(tenantId);
+		if (!tenant) return "";
+		const repos = this.resolveRepositoryIds(tenant.repositoryIds).filter(
+			(repo) => repo.isActive !== false,
+		);
+		// Single-repo tenants need no routing (same as the workspace behaviour).
+		if (repos.length <= 1) return "";
+		// Same representative as generateRoutingContextForAllWorkspaces (first
+		// by name), so the block reads the same as the unscoped one would.
+		const [first] = [...repos].sort((a, b) => a.name.localeCompare(b.name));
+		return first ? this.generateRoutingContext(first, repos) : "";
+	}
+
 	generateRoutingContextForAllWorkspaces(): string {
 		// Group only active repositories by Linear workspace ID so we can
 		// return routing context for each workspace independently.
@@ -590,14 +638,22 @@ export class PromptBuilder {
 	 * @param currentRepository The repository handling the current orchestrator issue
 	 * @returns XML-formatted routing context string, or empty string if no routing info available
 	 */
-	generateRoutingContext(currentRepository: RepositoryConfig): string {
-		// Get all repositories in the same workspace
-		const workspaceRepos = Array.from(this.repositories.values()).filter(
-			(repo) =>
-				repo.linearWorkspaceId ===
-					requireLinearWorkspaceId(currentRepository) &&
-				repo.isActive !== false,
-		);
+	generateRoutingContext(
+		currentRepository: RepositoryConfig,
+		candidates?: readonly RepositoryConfig[],
+	): string {
+		// Candidate repositories: an explicit list (a tenant's repositories),
+		// else the current repository's tenant when tenants are configured,
+		// else every repository in the same workspace.
+		const workspaceRepos = (
+			candidates ??
+			this.tenantRepositories(currentRepository) ??
+			Array.from(this.repositories.values()).filter(
+				(repo) =>
+					repo.linearWorkspaceId ===
+					requireLinearWorkspaceId(currentRepository),
+			)
+		).filter((repo) => repo.isActive !== false);
 
 		// If there's only one repository, no routing context needed
 		if (workspaceRepos.length <= 1) {

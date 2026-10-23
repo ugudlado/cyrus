@@ -5,6 +5,9 @@ This changelog documents internal development changes, refactors, tooling update
 ## [Unreleased]
 
 ### Changed
+- A33: chat routing context is a per-tenant resolver (`PromptBuilder.generateRoutingContextForTenant`, adapters accept `string | (tenantId?) => string`); `generateRoutingContext` takes an optional candidate list and, with tenants, expands from the tenant's `repositoryIds`; `LiveChatRepositoryProvider` fails closed for untagged events when tenants are enabled; `reposForTenant`/`reposForWorkspace` helpers replace the unscoped repo lists at the Linear transport handler and the fallback re-route.
+
+### Changed
 - Parent-side git hardening (A31 Stage A): `gitEnv.ts` builds per-call pinned git/gh environments (GIT_DIR/GIT_COMMON_DIR/GIT_WORK_TREE from parent-owned data, GIT_CONFIG_COUNT key pins); GitService, the Stop-hook guardrail, IntentToAddHook and PrMarkerHook use it. Workspace records gain `gitDirNames`. The glab MR marker is disabled (no-op, not registered) until converted. Workspace records gain `branchNames`; `gh` token tiers: token-store entry, then an App installation token scoped to the repo (`GitHubAppTokenProvider.getScopedToken`, `pull_requests: write`, minted at hook time; a mint failure skips the marker), then the env PAT.
 
 ## [0.2.74] - 2026-10-20

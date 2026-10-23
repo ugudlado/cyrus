@@ -65,7 +65,8 @@ export class ZulipChatAdapter
 {
 	readonly platformName = "zulip" as const;
 	private repositoryProvider: ChatRepositoryProvider;
-	private repositoryRoutingContext: string;
+	/** Resolved per event tenant at prompt-build time. */
+	private repositoryRoutingContext: (tenantId?: string) => string;
 	private messageService: ZulipMessageService;
 	private logger: ILogger;
 
@@ -73,13 +74,18 @@ export class ZulipChatAdapter
 		repositoryProvider: ChatRepositoryProvider,
 		logger?: ILogger,
 		options?: {
-			repositoryRoutingContext?: string;
+			/**
+			 * Routing-context XML for the event's tenant. A plain string is
+			 * accepted for callers that have one fixed context.
+			 */
+			repositoryRoutingContext?: string | ((tenantId?: string) => string);
 			messageService?: ZulipMessageService;
 		},
 	) {
 		this.repositoryProvider = repositoryProvider;
+		const routing = options?.repositoryRoutingContext;
 		this.repositoryRoutingContext =
-			options?.repositoryRoutingContext?.trim() || "";
+			typeof routing === "function" ? routing : () => routing ?? "";
 		this.messageService = options?.messageService ?? new ZulipMessageService();
 		this.logger = logger ?? createLogger({ component: "ZulipChatAdapter" });
 	}
@@ -199,6 +205,9 @@ export class ZulipChatAdapter
 	}
 
 	buildSystemPrompt(event: ZulipWebhookEvent): string {
+		// Zulip events carry no tenant; Zulip is not registered when tenants are
+		// configured, so the unscoped context is the only one there is.
+		const routingContext = this.repositoryRoutingContext().trim();
 		const repositoryPaths = Array.from(
 			new Set(this.repositoryProvider.getRepositoryPaths().filter(Boolean)),
 		).sort();
@@ -243,7 +252,7 @@ ${location}
 - You can answer questions, provide analysis, help with planning, and assist with research
 - If files need to be created or examined, they will be in your working directory
 ${repositoryAccessSection}
-${this.repositoryRoutingContext ? `\n\n${this.repositoryRoutingContext}` : ""}
+${routingContext ? `\n\n${routingContext}` : ""}
 
 ## Self-Knowledge
 - If the user asks about your capabilities, features, how you work, what you can do, setup instructions, or anything related to Cyrus documentation, use the \`mcp__cyrus-docs__search_documentation\` tool to look up the answer from the official Cyrus docs.

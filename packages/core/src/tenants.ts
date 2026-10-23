@@ -6,14 +6,14 @@ import type { RepositoryConfig, TenantConfig } from "./config-schemas.js";
  * never secret values.
  */
 export function validateTenants(config: {
-	repositories: Pick<RepositoryConfig, "id">[];
+	repositories: Pick<RepositoryConfig, "id" | "linearWorkspaceId">[];
 	tenants?: TenantConfig[];
 }): string[] {
 	const tenants = config.tenants;
 	if (!tenants || tenants.length === 0) return [];
 
 	const problems: string[] = [];
-	const repoIds = new Set(config.repositories.map((r) => r.id));
+	const repoById = new Map(config.repositories.map((r) => [r.id, r]));
 	const ids = new Set<string>();
 	const workspaceIds = new Set<string>();
 	const teamIds = new Set<string>();
@@ -40,11 +40,24 @@ export function validateTenants(config: {
 		}
 
 		for (const repoId of tenant.repositoryIds) {
-			if (!repoIds.has(repoId)) {
+			const repo = repoById.get(repoId);
+			if (!repo) {
 				problems.push(
 					`tenant "${tenant.id}": repository "${repoId}" does not exist`,
 				);
 				continue;
+			}
+			// Routing context and chat prompts are built per tenant; a repository
+			// that sits in another Linear workspace than its tenant would be
+			// expanded into the wrong tenant's session-visible text.
+			if (!repo.linearWorkspaceId) {
+				problems.push(
+					`tenant "${tenant.id}": repository "${repoId}" has no linearWorkspaceId`,
+				);
+			} else if (repo.linearWorkspaceId !== tenant.linearWorkspaceId) {
+				problems.push(
+					`tenant "${tenant.id}": repository "${repoId}" is in a different Linear workspace than the tenant`,
+				);
 			}
 			const owner = repoOwner.get(repoId);
 			if (owner !== undefined && owner !== tenant.id) {
