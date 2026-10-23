@@ -6,30 +6,37 @@
  */
 
 /**
- * Hidden HTML marker appended to every comment Cyrus posts, so Cyrus can
+ * Hidden HTML marker appended to every comment Kittu posts, so Kittu can
  * recognise (and ignore) its own comments even when it posts with a token
  * that belongs to a human account and author filtering cannot tell them apart.
  *
- * Not to be confused with upstream's `CYRUS_PR_MARKER`
- * (`<!-- generated-by-cyrus -->`), which marks the *body of a pull request*
- * Cyrus opened (used by the PR marker hook and skills). This marker is for
+ * Not to be confused with upstream's `KITTU_PR_MARKER`
+ * (`<!-- generated-by-kittu -->`), which marks the *body of a pull request*
+ * Kittu opened (used by the PR marker hook and skills). This marker is for
  * comments, replies and acknowledgements, and is what the webhook handler
- * checks to ignore Cyrus's own comments.
+ * checks to ignore Kittu's own comments.
  */
-export const CYRUS_COMMENT_MARKER = "<!-- cyrus-agent -->";
+export const KITTU_COMMENT_MARKER = "<!-- kittu-agent -->";
 
-/** True when the text carries the Cyrus self-authored marker. */
-export function hasCyrusCommentMarker(
+/** Marker written by pre-rebrand installs; still recognised, never written. */
+const LEGACY_COMMENT_MARKER = "<!-- cyrus-agent -->"; // kittu-compat: legacy marker
+
+/** True when the text carries the Kittu self-authored marker. */
+export function hasKittuCommentMarker(
 	body: string | null | undefined,
 ): boolean {
-	return typeof body === "string" && body.includes(CYRUS_COMMENT_MARKER);
+	return (
+		typeof body === "string" &&
+		(body.includes(KITTU_COMMENT_MARKER) ||
+			body.includes(LEGACY_COMMENT_MARKER))
+	);
 }
 
-/** Append the marker (once) to a comment body Cyrus is about to post. */
-export function withCyrusCommentMarker(body: string): string {
-	return hasCyrusCommentMarker(body)
+/** Append the marker (once) to a comment body Kittu is about to post. */
+export function withKittuCommentMarker(body: string): string {
+	return hasKittuCommentMarker(body)
 		? body
-		: `${body}\n\n${CYRUS_COMMENT_MARKER}`;
+		: `${body}\n\n${KITTU_COMMENT_MARKER}`;
 }
 
 export interface GitHubCommentServiceConfig {
@@ -125,7 +132,7 @@ export class GitHubCommentService {
 				"Content-Type": "application/json",
 				"X-GitHub-Api-Version": "2022-11-28",
 			},
-			body: JSON.stringify({ body: withCyrusCommentMarker(body) }),
+			body: JSON.stringify({ body: withKittuCommentMarker(body) }),
 		});
 
 		if (!response.ok) {
@@ -158,7 +165,7 @@ export class GitHubCommentService {
 				"Content-Type": "application/json",
 				"X-GitHub-Api-Version": "2022-11-28",
 			},
-			body: JSON.stringify({ body: withCyrusCommentMarker(body) }),
+			body: JSON.stringify({ body: withKittuCommentMarker(body) }),
 		});
 
 		if (!response.ok) {

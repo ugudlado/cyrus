@@ -1,9 +1,9 @@
-# Releasing the Cyrus CLI
+# Releasing the Kittu CLI
 
-Cyrus releases are published on demand by
+Kittu releases are published on demand by
 `.github/workflows/release-cli.yml`. A CLI release is a coordinated monorepo
-release: the workflow packages and publishes every public Cyrus workspace in
-dependency order before publishing `cyrus-ai`.
+release: the workflow packages and publishes every public Kittu workspace in
+dependency order before publishing `kittu-ai`.
 
 The publish boundary uses npm trusted publishing with GitHub Actions OIDC. It
 does not read or store a long-lived npm publish token.
@@ -21,7 +21,7 @@ The test route has three separate jobs:
 
 1. **Build** (`contents: read`, no OIDC): checks the exact candidate, runs the
    canonical validator, frozen strict-peer install, audit, lint, build, package
-   and CLI tests, typecheck, then adds `cyrusTestRelease` metadata to all package
+   and CLI tests, typecheck, then adds `kittuTestRelease` metadata to all package
    manifests and packs all 17 coordinated workspaces. All internal dependencies
    must be the exact prerelease version. An isolated local installation is a
    preflight only. Hashes and immutable source/workflow provenance accompany the
@@ -46,7 +46,7 @@ Review candidate build scripts before dispatch. They run only in the
 unprivileged job; the publisher executes only reviewed infrastructure. The
 candidate's canonical validator/package list must match main. npm's automatic
 OIDC provenance identifies the **main workflow commit**; candidate provenance is
-explicitly recorded in every package's `cyrusTestRelease` metadata and verified
+explicitly recorded in every package's `kittuTestRelease` metadata and verified
 against the dispatch SHA. Do not describe the automatic attestation as proving
 that the candidate itself was main.
 
@@ -87,8 +87,8 @@ npm rebuild -g --allow-scripts=cloudflared cloudflared
 
 The verification job records whether its binary existed before approval and
 requires it to run afterward. npm 10/11 use their normal lifecycle behavior.
-Use Node 22 or 24 and a separate test installation/`--cyrus-home`, preserving the
-running internal Cyrus auth/config. No live provider, default-pin/shared-fallback,
+Use Node 22 or 24 and a separate test installation/`--kittu-home`, preserving the
+running internal Kittu auth/config. No live provider, default-pin/shared-fallback,
 hosted UI or human-review acceptance is implied by npm installation.
 
 References: [npm trusted publishers](https://docs.npmjs.com/trusted-publishers/),
@@ -104,7 +104,7 @@ Configure the trusted publisher on every package listed by
 | -------------------- | ----------------- |
 | Publisher            | GitHub Actions    |
 | Organization or user | `cyrusagents`     |
-| Repository           | `cyrus`           |
+| Repository           | `kittu`           |
 | Workflow filename    | `release-cli.yml` |
 | Environment          | Leave blank       |
 | Allowed actions      | `npm publish`     |
@@ -233,7 +233,7 @@ report route; no filename-based exemption or automatic skip is provided.
 
 ## Dispatch a release
 
-From GitHub, open **Actions → Release Cyrus CLI → Run workflow**, select
+From GitHub, open **Actions → Release Kittu CLI → Run workflow**, select
 `main`, enter the exact committed version, and choose the npm distribution tag.
 Use **dry run** to exercise every local verification step without publishing,
 tagging, or creating a GitHub release.
@@ -264,7 +264,7 @@ audit, runs lint, tests, type checks, and the full build, then packs every
 package using pnpm so `workspace:*` references become exact published versions.
 It inspects each tarball, installs all local release tarballs together so the
 CLI smoke test does not depend on unpublished internal versions, verifies
-`cyrus --version`, and publishes the same inspected artifacts through npm's
+`kittu --version`, and publishes the same inspected artifacts through npm's
 OIDC-capable CLI in dependency order, using `scripts/publish-release.mjs`.
 
 ### Ordered uploads and the final registry gate
@@ -307,7 +307,7 @@ Behavioral fixtures execute the workflow's publish/tag/release steps with fake
 npm, registry downloads, git, and GitHub commands:
 
 ```sh
-pnpm --filter cyrus-ai test:run release-publish.test.ts release-workflow.test.ts
+pnpm --filter kittu-ai test:run release-publish.test.ts release-workflow.test.ts
 ```
 
 The baseline and synthetic-delay evidence are recorded in

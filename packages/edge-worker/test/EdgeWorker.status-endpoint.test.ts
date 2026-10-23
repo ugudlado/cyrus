@@ -12,10 +12,10 @@ vi.mock("fs/promises", () => ({
 }));
 
 // Mock dependencies
-vi.mock("cyrus-claude-runner");
-vi.mock("cyrus-codex-runner");
-vi.mock("cyrus-gemini-runner");
-vi.mock("cyrus-linear-event-transport");
+vi.mock("kittu-claude-runner");
+vi.mock("kittu-codex-runner");
+vi.mock("kittu-gemini-runner");
+vi.mock("kittu-linear-event-transport");
 vi.mock("@linear/sdk");
 vi.mock("../src/SharedApplicationServer.js", () => ({
 	SharedApplicationServer: vi.fn().mockImplementation(function () {
@@ -36,7 +36,7 @@ vi.mock("../src/AgentSessionManager.js", () => ({
 		return {
 			getAllAgentRunners: vi.fn().mockReturnValue([]),
 			getAllSessions: vi.fn().mockReturnValue([]),
-			createCyrusAgentSession: vi.fn(),
+			createKittuAgentSession: vi.fn(),
 			getSession: vi.fn(),
 			getActiveSessionsByIssueId: vi.fn().mockReturnValue([]),
 			setActivitySink: vi.fn(),
@@ -45,7 +45,7 @@ vi.mock("../src/AgentSessionManager.js", () => ({
 		};
 	}),
 }));
-vi.mock("cyrus-core", async (importOriginal) => {
+vi.mock("kittu-core", async (importOriginal) => {
 	const actual = (await importOriginal()) as any;
 	return {
 		...actual,
@@ -99,7 +99,7 @@ describe("EdgeWorker - Status Endpoint", () => {
 
 		mockConfig = {
 			platform: "linear",
-			cyrusHome: "/test/.cyrus",
+			kittuHome: "/test/.kittu",
 			repositories: [mockRepository],
 			linearWorkspaces: {
 				"test-workspace": { linearToken: "test-token" },
@@ -250,7 +250,7 @@ describe("EdgeWorker - Status Endpoint", () => {
 			edgeWorker = new EdgeWorker(mockConfig);
 
 			// Mock isIssueUnassignedWebhook to return true and make the handler throw
-			const { isIssueUnassignedWebhook } = await import("cyrus-core");
+			const { isIssueUnassignedWebhook } = await import("kittu-core");
 			vi.mocked(isIssueUnassignedWebhook).mockReturnValue(true);
 
 			// Mock the handler to throw

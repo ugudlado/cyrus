@@ -8,16 +8,16 @@ import type {
 	SDKMessage,
 	SdkPluginConfig,
 	StopHookInput,
-} from "cyrus-claude-runner";
+} from "kittu-claude-runner";
 import type {
 	AgentRunnerConfig,
-	CyrusAgentSession,
 	ILogger,
+	KittuAgentSession,
 	OnAskUserQuestion,
 	OpenCodeConfigOverrides,
 	RepositoryConfig,
 	RunnerType,
-} from "cyrus-core";
+} from "kittu-core";
 import {
 	GitEnv,
 	type GitSessionTarget,
@@ -87,12 +87,12 @@ export interface ChatRunnerConfigInput {
 	systemPrompt: string;
 	sessionId: string;
 	resumeSessionId?: string;
-	cyrusHome: string;
+	kittuHome: string;
 	/** Chat platform name (e.g. "slack") — used to namespace the shared auto-memory dir */
 	platformName: string;
 	/** Linear workspace ID for building fresh MCP config at session start */
 	linearWorkspaceId?: string;
-	/** Repository whose MCP runtime servers (Linear MCP, Cyrus tools, etc.) get
+	/** Repository whose MCP runtime servers (Linear MCP, Kittu tools, etc.) get
 	 * spun up for this chat session — chat sessions are repo-agnostic at the
 	 * session level, so this just picks one repo to seed those native servers. */
 	repository?: RepositoryConfig;
@@ -118,9 +118,9 @@ export interface ChatRunnerConfigInput {
 	 * these skills into its repository discovery layout.
 	 */
 	skills?: string[] | "all";
-	/** Global OpenCode runtime config overrides from Cyrus config */
+	/** Global OpenCode runtime config overrides from Kittu config */
 	opencodeGlobalConfig?: OpenCodeConfigOverrides["config"];
-	/** Global OpenCode CLI state scope from Cyrus config */
+	/** Global OpenCode CLI state scope from Kittu config */
 	opencodeGlobalStateScope?: OpenCodeConfigOverrides["stateScope"];
 	/** Existing runner type to preserve when resuming a completed chat session */
 	runnerType?: RunnerType;
@@ -137,7 +137,7 @@ export interface ChatRunnerConfigInput {
  * Input for building an issue session runner config.
  */
 export interface IssueRunnerConfigInput {
-	session: CyrusAgentSession;
+	session: KittuAgentSession;
 	repository: RepositoryConfig;
 	sessionId: string;
 	systemPrompt: string | undefined;
@@ -184,7 +184,7 @@ export interface IssueRunnerConfigInput {
 	/** Whether Claude should ignore ambient MCP configuration. Defaults to true. */
 	strictMcpConfig?: boolean;
 	linearWorkspaceId?: string;
-	cyrusHome: string;
+	kittuHome: string;
 	logger: ILogger;
 	onMessage: (message: SDKMessage) => void | Promise<void>;
 	onError: (error: Error) => void;
@@ -197,9 +197,9 @@ export interface IssueRunnerConfigInput {
 	requireLinearWorkspaceId: (repo: RepositoryConfig) => string;
 	/** Plugins to load for the session (provides skills, hooks, etc.) */
 	plugins?: SdkPluginConfig[];
-	/** Global OpenCode runtime config overrides from Cyrus config */
+	/** Global OpenCode runtime config overrides from Kittu config */
 	opencodeGlobalConfig?: OpenCodeConfigOverrides["config"];
-	/** Global OpenCode CLI state scope from Cyrus config */
+	/** Global OpenCode CLI state scope from Kittu config */
 	opencodeGlobalStateScope?: OpenCodeConfigOverrides["stateScope"];
 	/**
 	 * Allow-list of skill names enabled for the session (after scope filtering),
@@ -214,14 +214,14 @@ export interface IssueRunnerConfigInput {
 	egressCaCertPath?: string;
 	/**
 	 * Operator-whitelisted extra writable paths (absolute), from
-	 * `sandbox.writablePaths` / `CYRUS_SANDBOX_WRITABLE_PATHS`. Always applied
+	 * `sandbox.writablePaths` / `KITTU_SANDBOX_WRITABLE_PATHS`. Always applied
 	 * for Codex; applied for Claude when the egress sandbox is enabled.
 	 */
 	sandboxWritablePaths?: string[];
 	/**
 	 * GitHub App installation token matched to the session repository's org
 	 * (from the cyrus-hosted-pushed token store). When set, it's exposed to
-	 * the session ONLY as `CYRUS_GH_TOKEN` — the droplet's gh wrapper maps
+	 * the session ONLY as `KITTU_GH_TOKEN` — the droplet's gh wrapper maps
 	 * it to `GH_TOKEN` inside the gh process. We deliberately do NOT set
 	 * `GH_TOKEN` itself: customers set their own `GH_TOKEN` (e.g. for
 	 * private npm registries on GitHub Packages) and clobbering it would
@@ -337,10 +337,10 @@ export class RunnerConfigBuilder {
 			input.runnerType ?? this.runnerSelector.getDefaultRunner();
 
 		// Shared auto-memory across all chat threads on this platform. Lives
-		// under cyrusHome (not the per-thread workspace) so memory built up in
+		// under kittuHome (not the per-thread workspace) so memory built up in
 		// one Slack thread is available to every other Slack thread.
 		const autoMemoryDirectory = join(
-			input.cyrusHome,
+			input.kittuHome,
 			`${input.platformName}-memory`,
 		);
 
@@ -356,7 +356,7 @@ export class RunnerConfigBuilder {
 				...repositoryPaths,
 			],
 			workspaceName: input.workspaceName,
-			cyrusHome: input.cyrusHome,
+			kittuHome: input.kittuHome,
 			autoMemoryDirectory,
 			appendSystemPrompt: appendCloudRuntimeAddendum(
 				appendGitHubCliMediaAddendum(
@@ -420,7 +420,7 @@ export class RunnerConfigBuilder {
 				"RunnerConfigBuilder has no injected GitEnv; using defaults (no configured hooks dir, credential helper or gh binary)",
 			);
 		}
-		const gitEnv = this.gitEnv ?? new GitEnv({ cyrusHome: input.cyrusHome });
+		const gitEnv = this.gitEnv ?? new GitEnv({ kittuHome: input.kittuHome });
 		const sessionGit = new SessionGit(gitEnv, input.gitTargets ?? [], log);
 		// gh authenticates with an explicit token, never one derived from the
 		// workspace: the org-matched installation token, else the repository's
@@ -540,7 +540,7 @@ export class RunnerConfigBuilder {
 			allowedDirectories: input.allowedDirectories,
 			...(additionalDirectories.length > 0 && { additionalDirectories }),
 			workspaceName: input.session.issue?.identifier || input.session.issueId,
-			cyrusHome: input.cyrusHome,
+			kittuHome: input.kittuHome,
 			mcpConfigPath,
 			mcpConfig,
 			strictMcpConfig: input.strictMcpConfig ?? true,
@@ -595,14 +595,14 @@ export class RunnerConfigBuilder {
 		// Expose the org-matched GitHub App installation token to the session
 		// env. Merged on top of any sandbox additionalEnv (CA cert vars) so
 		// both survive. Only set when a token store entry matched the repo's
-		// org — sessions without a match see zero env change. CYRUS_GH_TOKEN
+		// org — sessions without a match see zero env change. KITTU_GH_TOKEN
 		// only — never GH_TOKEN, which customers set themselves (e.g. private
 		// npm registries on GitHub Packages); the droplet's gh wrapper maps
-		// CYRUS_GH_TOKEN to GH_TOKEN inside the gh process.
+		// KITTU_GH_TOKEN to GH_TOKEN inside the gh process.
 		if (input.githubToken) {
 			config.additionalEnv = {
 				...config.additionalEnv,
-				CYRUS_GH_TOKEN: input.githubToken,
+				KITTU_GH_TOKEN: input.githubToken,
 			};
 		}
 
@@ -722,7 +722,7 @@ export class RunnerConfigBuilder {
 					// "." resolves to the cwd of the primary folder Claude is working in.
 					// See: https://code.claude.com/docs/en/settings#sandbox-path-prefixes
 					// Read access: the worktree ("."), the attachments dir (it lives under
-					// ~/.cyrus, which `denyRead: ["~/"]` would otherwise hide), and
+					// ~/.kittu, which `denyRead: ["~/"]` would otherwise hide), and
 					// operator-whitelisted writable paths (carved out of the `~/` deny).
 					// Repo paths and git metadata dirs are deliberately NOT listed: a
 					// read-only grant on the common `.git` overrides its write grant and
@@ -730,7 +730,7 @@ export class RunnerConfigBuilder {
 					allowRead: [
 						".",
 						join(
-							input.cyrusHome,
+							input.kittuHome,
 							basename(input.session.workspace.path),
 							"attachments",
 						),
@@ -914,7 +914,7 @@ export function buildStopHook(
  *
  * Uses `--untracked-files=no` so that pre-existing untracked files in the
  * customer's worktree (scratch files, local env files, IDE artifacts) do not
- * wedge the session. Files Cyrus creates via Write/Edit are marked with
+ * wedge the session. Files Kittu creates via Write/Edit are marked with
  * `git add --intent-to-add` by `IntentToAddHook` so they still show as a
  * tracked diff and block the stop when left uncommitted.
  */

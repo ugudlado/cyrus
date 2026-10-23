@@ -1,8 +1,8 @@
-name: Release Cyrus CLI
+name: Release Kittu CLI
 
 run-name: >-
   ${{ inputs.dry_run && 'Dry run' || 'Release' }}
-  cyrus-ai@${{ inputs.version }} (${{ inputs.dist_tag }})
+  kittu-ai@${{ inputs.version }} (${{ inputs.dist_tag }})
 
 on:
   workflow_dispatch:
@@ -33,7 +33,7 @@ on:
         type: boolean
 
 concurrency:
-  group: release-cyrus-cli
+  group: release-kittu-cli
   cancel-in-progress: false
 
 permissions:
@@ -59,13 +59,13 @@ jobs:
         shell: bash
         run: |
           if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
-            echo "Cyrus releases must be dispatched from main; received $GITHUB_REF." >&2
+            echo "Kittu releases must be dispatched from main; received $GITHUB_REF." >&2
             exit 1
           fi
 
       - name: Initialize release paths
         shell: bash
-        run: echo "RELEASE_ARTIFACTS=$RUNNER_TEMP/cyrus-release" >> "$GITHUB_ENV"
+        run: echo "RELEASE_ARTIFACTS=$RUNNER_TEMP/kittu-release" >> "$GITHUB_ENV"
 
       - name: Check out the release source
         uses: actions/checkout@v7
@@ -133,7 +133,7 @@ jobs:
       - name: Test packages and CLI
         run: |
           pnpm test:packages:run
-          pnpm --filter cyrus-ai test:run
+          pnpm --filter kittu-ai test:run
 
       - name: Type-check
         run: pnpm typecheck
@@ -184,7 +184,7 @@ jobs:
             release_tarballs+=("$RELEASE_ARTIFACTS/${package_name}-${REQUESTED_VERSION}.tgz")
           done < <(node scripts/release-packages.mjs list)
           npm install --global "${release_tarballs[@]}"
-          ACTUAL_VERSION="$(CYRUS_SENTRY_DISABLED=1 cyrus --version)"
+          ACTUAL_VERSION="$(KITTU_SENTRY_DISABLED=1 kittu --version)"
           if [[ "$ACTUAL_VERSION" != "$REQUESTED_VERSION" ]]; then
             echo "Packed CLI reports ${ACTUAL_VERSION}; expected ${REQUESTED_VERSION}." >&2
             exit 1
@@ -193,8 +193,8 @@ jobs:
       - name: Upload inspected release artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: cyrus-${{ inputs.version }}-packages
-          path: ${{ runner.temp }}/cyrus-release/*.tgz
+          name: kittu-${{ inputs.version }}-packages
+          path: ${{ runner.temp }}/kittu-release/*.tgz
           if-no-files-found: error
           retention-days: 14
 
@@ -253,7 +253,7 @@ jobs:
               | tr -d ' '
           )" || package_count="unknown"
           {
-            echo "## Cyrus CLI"
+            echo "## Kittu CLI"
             echo
             echo "- **Result:** ${action}"
             echo "- **Version:** \`${REQUESTED_VERSION}\`"
@@ -277,7 +277,7 @@ jobs:
       CANDIDATE_SHA: ${{ inputs.candidate_sha }}
       REQUESTED_VERSION: ${{ inputs.version }}
       DIST_TAG: ${{ inputs.dist_tag }}
-      CYRUS_SENTRY_DISABLED: "1"
+      KITTU_SENTRY_DISABLED: "1"
     steps:
       - name: Require reviewed workflow and immutable candidate
         shell: bash
@@ -312,8 +312,8 @@ jobs:
         shell: bash
         run: |
           node tooling/scripts/test-cli-artifacts.mjs validate candidate "$REQUESTED_VERSION" "$CANDIDATE_SHA"
-          echo "TEST_ARTIFACTS=$RUNNER_TEMP/cyrus-test-packages" >> "$GITHUB_ENV"
-          echo "TEST_BUNDLE=$RUNNER_TEMP/cyrus-test-bundle" >> "$GITHUB_ENV"
+          echo "TEST_ARTIFACTS=$RUNNER_TEMP/kittu-test-packages" >> "$GITHUB_ENV"
+          echo "TEST_BUNDLE=$RUNNER_TEMP/kittu-test-bundle" >> "$GITHUB_ENV"
 
       - name: Install the repository pnpm version
         working-directory: candidate
@@ -343,7 +343,7 @@ jobs:
         working-directory: candidate
         run: |
           pnpm test:packages:run
-          pnpm --filter cyrus-ai test:run
+          pnpm --filter kittu-ai test:run
 
       - name: Type-check
         working-directory: candidate
@@ -376,8 +376,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/bundle-smoke"
           cd "$TEST_BUNDLE"
           sha256sum --check SHA256SUMS
-          tar -xzf "cyrus-${REQUESTED_VERSION}-test-bundle.tar.gz" -C "$RUNNER_TEMP/bundle-smoke"
-          cd "$RUNNER_TEMP/bundle-smoke/cyrus-${REQUESTED_VERSION}-test-bundle"
+          tar -xzf "kittu-${REQUESTED_VERSION}-test-bundle.tar.gz" -C "$RUNNER_TEMP/bundle-smoke"
+          cd "$RUNNER_TEMP/bundle-smoke/kittu-${REQUESTED_VERSION}-test-bundle"
           sha256sum --check SHA256SUMS
           # The installer checks version/help using its private test home.
           bash install.sh "$RUNNER_TEMP/test-cli-prefix"
@@ -391,7 +391,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: npm-test-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/cyrus-test-packages/*
+          path: ${{ runner.temp }}/kittu-test-packages/*
           if-no-files-found: error
           retention-days: 14
 

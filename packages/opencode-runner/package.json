@@ -1,7 +1,7 @@
 {
-	"name": "cyrus-opencode-runner",
+	"name": "kittu-opencode-runner",
 	"version": "0.2.74",
-	"description": "OpenCode CLI process wrapper for Cyrus",
+	"description": "OpenCode CLI process wrapper for Kittu",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/cyrusagents/cyrus.git",
@@ -21,8 +21,8 @@
 		"typecheck": "tsgo --noEmit"
 	},
 	"dependencies": {
-		"cyrus-core": "workspace:*",
-		"cyrus-simple-agent-runner": "workspace:*"
+		"kittu-core": "workspace:*",
+		"kittu-simple-agent-runner": "workspace:*"
 	},
 	"devDependencies": {
 		"@types/node": "^20.0.0",

@@ -1,5 +1,5 @@
-import type { ILogger, RepositoryConfig } from "cyrus-core";
-import { TenantRegistry } from "cyrus-core";
+import type { ILogger, RepositoryConfig } from "kittu-core";
+import { TenantRegistry } from "kittu-core";
 import { describe, expect, it } from "vitest";
 import { LiveChatRepositoryProvider } from "../src/ChatRepositoryProvider.js";
 import { PromptBuilder } from "../src/PromptBuilder.js";
@@ -197,7 +197,7 @@ describe("SlackChatAdapter resolves the routing context per event tenant", () =>
 - After you are first @mentioned, you receive **every** subsequent message in this thread, not just the ones aimed at you. Do not treat every message as a request for you.
 - Respond ONLY when at least one of these is true:
   1. The message asks a question you can genuinely and helpfully answer, OR
-  2. Someone addresses you directly — by name ("Cyrus, …") or with an @mention.
+  2. Someone addresses you directly — by name ("Kittu, …") or with an @mention.
 - For anything else — side conversation between people, acknowledgements ("thanks", "👍"), status chatter, or messages clearly not directed at you — do NOT reply.
 - When you should stay silent, output exactly \`<<NO_RESPONSE>>\` and nothing else — no reasoning, no explanation, not a single word before or after the token.
 - NEVER narrate your decision about whether to respond. Your entire output is posted verbatim to the thread — there is no private scratchpad. Thoughts like "the user didn't address me by name, so I should stay quiet" or "they addressed me by name, so I'm listening again" must never appear in your output. Either emit the bare token, or reply directly to the user's message as if the decision never happened.
@@ -226,8 +226,8 @@ describe("SlackChatAdapter resolves the routing context per event tenant", () =>
 ${routing}
 
 ## Self-Knowledge
-- If the user asks about your capabilities, features, how you work, what you can do, setup instructions, or anything related to Cyrus documentation, use the \`mcp__cyrus-docs__search_documentation\` tool to look up the answer from the official Cyrus docs.
-- Always prefer searching the docs over guessing or relying on your training data for Cyrus-specific questions.
+- If the user asks about your capabilities, features, how you work, what you can do, setup instructions, or anything related to Kittu documentation, use the \`mcp__cyrus-docs__search_documentation\` tool to look up the answer from the official Kittu docs.
+- Always prefer searching the docs over guessing or relying on your training data for Kittu-specific questions.
 
 ## Orchestration Notes
 - If the user asks you to make repo code changes immediately, use these steps:
@@ -238,8 +238,8 @@ ${routing}
   - To choose both execution harness and model from Linear labels, apply a \`<provider>/<model>\` label such as \`openai/gpt-5.5\`. For OpenCode, use \`opencode/<provider>/<model>\`, such as \`opencode/openai/gpt-5.5\`.
   - Assign that Issue to that same user (your own Linear user).
   - That assignment is what immediately kicks off work in your own agent session.
-  - Track execution progress by searching \`mcp__cyrus-tools__linear_get_agent_sessions\` for the active session, then opening it with \`mcp__cyrus-tools__linear_get_agent_session\`.
-  - To send mid-flight feedback or corrections to a running child session, use \`mcp__cyrus-tools__linear_agent_give_feedback\` with the session ID returned by \`linear_get_agent_sessions\`. This is the ONLY way to directly prompt a running child agent. \`mcp__linear__save_comment\` does NOT trigger or notify the agent in any way — it just writes a comment on the issue, which the running session will not see. Always prefer \`linear_agent_give_feedback\` when the child agent is actively working.
+  - Track execution progress by searching \`mcp__kittu-tools__linear_get_agent_sessions\` for the active session, then opening it with \`mcp__kittu-tools__linear_get_agent_session\`.
+  - To send mid-flight feedback or corrections to a running child session, use \`mcp__kittu-tools__linear_agent_give_feedback\` with the session ID returned by \`linear_get_agent_sessions\`. This is the ONLY way to directly prompt a running child agent. \`mcp__linear__save_comment\` does NOT trigger or notify the agent in any way — it just writes a comment on the issue, which the running session will not see. Always prefer \`linear_agent_give_feedback\` when the child agent is actively working.
 
 ## Slack Message Formatting (CRITICAL)
 Your response will be posted as a Slack message. Slack uses its own "mrkdwn" format, which is NOT standard Markdown. You MUST follow these rules exactly.

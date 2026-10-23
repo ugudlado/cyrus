@@ -37,7 +37,7 @@ export interface SessionFixture {
 }
 
 /**
- * A real repository with a real linked worktree, the layout of a Cyrus
+ * A real repository with a real linked worktree, the layout of a Kittu
  * session: main checkout (detached so the worktree can hold the branch),
  * worktree `ws` on `main`, optional bare remote with `main` pushed and set as
  * upstream.
@@ -45,7 +45,7 @@ export interface SessionFixture {
 export function makeSessionFixture(
 	opts: { remote?: boolean; branch?: string } = {},
 ): SessionFixture {
-	const root = mkdtempSync(join(tmpdir(), "cyrus-git-session-"));
+	const root = mkdtempSync(join(tmpdir(), "kittu-git-session-"));
 	const repo = join(root, "repo");
 	const ws = join(root, "worktrees", "ENG-1");
 	const branch = opts.branch ?? "main";
@@ -69,7 +69,7 @@ export function makeSessionFixture(
 		git(repo, "worktree", "add", "-b", branch, ws, "main");
 	}
 	const gitEnv = new GitEnv({
-		cyrusHome: join(root, "home"),
+		kittuHome: join(root, "home"),
 		allowFileProtocol: true,
 	});
 	const target: GitSessionTarget = {

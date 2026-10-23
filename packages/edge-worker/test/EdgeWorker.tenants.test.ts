@@ -1,19 +1,19 @@
 import { LinearClient } from "@linear/sdk";
-import { LinearEventTransport } from "cyrus-linear-event-transport";
+import { LinearEventTransport } from "kittu-linear-event-transport";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSessionManager } from "../src/AgentSessionManager.js";
 import { EdgeWorker } from "../src/EdgeWorker.js";
 import { SharedApplicationServer } from "../src/SharedApplicationServer.js";
 import type { EdgeWorkerConfig, RepositoryConfig } from "../src/types.js";
 import { expectedRoutingBlock } from "./helpers/routingBlock.js";
-import { TEST_CYRUS_HOME } from "./test-dirs.js";
+import { TEST_KITTU_HOME } from "./test-dirs.js";
 
 vi.mock("fs/promises");
 vi.mock("@linear/sdk");
-vi.mock("cyrus-linear-event-transport");
+vi.mock("kittu-linear-event-transport");
 vi.mock("../src/AgentSessionManager.js");
 vi.mock("../src/SharedApplicationServer.js");
-vi.mock("cyrus-core", async (importOriginal) => {
+vi.mock("kittu-core", async (importOriginal) => {
 	const actual = (await importOriginal()) as any;
 	return {
 		...actual,
@@ -50,7 +50,7 @@ const tenant = (id: string, repositoryIds: string[]) => ({
 function makeConfig(over: Partial<EdgeWorkerConfig> = {}): EdgeWorkerConfig {
 	return {
 		proxyUrl: "http://localhost:3000",
-		cyrusHome: TEST_CYRUS_HOME,
+		kittuHome: TEST_KITTU_HOME,
 		repositories: [
 			repo("jus", "ws-a"),
 			repo("cyr", "ws-a"),
@@ -79,13 +79,13 @@ describe("EdgeWorker tenants", () => {
 		vi.spyOn(console, "log").mockImplementation(() => {});
 		vi.spyOn(console, "error").mockImplementation(() => {});
 		vi.stubEnv("LINEAR_DIRECT_WEBHOOKS", "true");
-		vi.stubEnv("CYRUS_HOST_EXTERNAL", "true");
+		vi.stubEnv("KITTU_HOST_EXTERNAL", "true");
 		vi.stubEnv("WH_a", "secret-a");
 		vi.stubEnv("WH_b", "secret-b");
 		listeners = {};
 		vi.mocked(AgentSessionManager).mockImplementation(function () {
 			return {
-				createCyrusAgentSession: vi.fn(),
+				createKittuAgentSession: vi.fn(),
 				getSessionsByIssueId: vi.fn().mockReturnValue([]),
 				serializeState: vi.fn().mockReturnValue({ sessions: {}, entries: {} }),
 				restoreState: vi.fn(),
@@ -129,15 +129,15 @@ describe("EdgeWorker tenants", () => {
 			/LINEAR_DIRECT_WEBHOOKS is not "true"/,
 		);
 		vi.stubEnv("LINEAR_DIRECT_WEBHOOKS", "true");
-		vi.stubEnv("CYRUS_HOST_EXTERNAL", "");
+		vi.stubEnv("KITTU_HOST_EXTERNAL", "");
 		expect(() => new EdgeWorker(makeConfig())).toThrow(
-			/CYRUS_HOST_EXTERNAL is not "true"/,
+			/KITTU_HOST_EXTERNAL is not "true"/,
 		);
 	});
 
 	it("does not require those env vars without tenants", () => {
 		vi.stubEnv("LINEAR_DIRECT_WEBHOOKS", "");
-		vi.stubEnv("CYRUS_HOST_EXTERNAL", "");
+		vi.stubEnv("KITTU_HOST_EXTERNAL", "");
 		expect(
 			() => new EdgeWorker(makeConfig({ tenants: undefined })),
 		).not.toThrow();
@@ -277,7 +277,7 @@ describe("EdgeWorker tenants", () => {
 			expect(String(warn.mock.calls[0]?.[0])).toContain(
 				"Slack event transport not registered",
 			);
-			expect(String(warn.mock.calls[0]?.[0])).toContain("CYRUS_HOST_EXTERNAL");
+			expect(String(warn.mock.calls[0]?.[0])).toContain("KITTU_HOST_EXTERNAL");
 		});
 
 		it("findRepositoryByGitLabUrl matches the exact trailing project path only", () => {

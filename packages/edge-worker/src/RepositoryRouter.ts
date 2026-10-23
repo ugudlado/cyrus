@@ -7,7 +7,7 @@ import {
 	type ILogger,
 	type RepositoryConfig,
 	type Webhook,
-} from "cyrus-core";
+} from "kittu-core";
 
 /**
  * Repository routing result types
@@ -413,7 +413,7 @@ export class RepositoryRouter {
 					let isMatch = false;
 
 					// Match by GitHub/GitLab URL path segment (e.g., "org/repo-name" or "repo-name")
-					// Use endsWith to avoid substring false positives (e.g., "cyrus" matching "cyrus-hosted")
+					// Use endsWith to avoid substring false positives (e.g., "kittu" matching "cyrus-hosted")
 					if (
 						repo.githubUrl?.endsWith(`/${repoTag.repo}`) ||
 						repo.githubUrl?.endsWith(`/${repoTag.repo}.git`) ||
@@ -576,7 +576,7 @@ export class RepositoryRouter {
 
 				const fullIssue = await issueTracker.fetchIssue(issueId);
 				const project = await fullIssue?.project;
-				if (!project || !project.name) {
+				if (!project?.name) {
 					this.logger.debug(
 						`No project name found for issue ${issueId} in repository ${repo.name}`,
 					);

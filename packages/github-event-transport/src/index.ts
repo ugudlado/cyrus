@@ -15,10 +15,10 @@ export type {
 	PostReviewCommentReplyParams,
 } from "./GitHubCommentService.js";
 export {
-	CYRUS_COMMENT_MARKER,
 	GitHubCommentService,
-	hasCyrusCommentMarker,
-	withCyrusCommentMarker,
+	hasKittuCommentMarker,
+	KITTU_COMMENT_MARKER,
+	withKittuCommentMarker,
 } from "./GitHubCommentService.js";
 export { GitHubEventTransport } from "./GitHubEventTransport.js";
 export { GitHubMessageTranslator } from "./GitHubMessageTranslator.js";

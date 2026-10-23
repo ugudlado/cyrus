@@ -13,42 +13,42 @@ export const repositoryUrl = "git+https://github.com/cyrusagents/cyrus.git";
 export const releasePackages = [
 	{
 		directory: "packages/cloudflare-tunnel-client",
-		name: "cyrus-cloudflare-tunnel-client",
+		name: "kittu-cloudflare-tunnel-client",
 	},
-	{ directory: "packages/mcp-tools", name: "cyrus-mcp-tools" },
-	{ directory: "packages/core", name: "cyrus-core" },
-	{ directory: "packages/claude-runner", name: "cyrus-claude-runner" },
-	{ directory: "packages/config-updater", name: "cyrus-config-updater" },
+	{ directory: "packages/mcp-tools", name: "kittu-mcp-tools" },
+	{ directory: "packages/core", name: "kittu-core" },
+	{ directory: "packages/claude-runner", name: "kittu-claude-runner" },
+	{ directory: "packages/config-updater", name: "kittu-config-updater" },
 	{
 		directory: "packages/linear-event-transport",
-		name: "cyrus-linear-event-transport",
+		name: "kittu-linear-event-transport",
 	},
 	{
 		directory: "packages/github-event-transport",
-		name: "cyrus-github-event-transport",
+		name: "kittu-github-event-transport",
 	},
 	{
 		directory: "packages/gitlab-event-transport",
-		name: "cyrus-gitlab-event-transport",
+		name: "kittu-gitlab-event-transport",
 	},
 	{
 		directory: "packages/slack-event-transport",
-		name: "cyrus-slack-event-transport",
+		name: "kittu-slack-event-transport",
 	},
 	{
 		directory: "packages/zulip-event-transport",
-		name: "cyrus-zulip-event-transport",
+		name: "kittu-zulip-event-transport",
 	},
 	{
 		directory: "packages/simple-agent-runner",
-		name: "cyrus-simple-agent-runner",
+		name: "kittu-simple-agent-runner",
 	},
-	{ directory: "packages/opencode-runner", name: "cyrus-opencode-runner" },
-	{ directory: "packages/codex-runner", name: "cyrus-codex-runner" },
-	{ directory: "packages/cursor-runner", name: "cyrus-cursor-runner" },
-	{ directory: "packages/gemini-runner", name: "cyrus-gemini-runner" },
-	{ directory: "packages/edge-worker", name: "cyrus-edge-worker" },
-	{ directory: "apps/cli", name: "cyrus-ai" },
+	{ directory: "packages/opencode-runner", name: "kittu-opencode-runner" },
+	{ directory: "packages/codex-runner", name: "kittu-codex-runner" },
+	{ directory: "packages/cursor-runner", name: "kittu-cursor-runner" },
+	{ directory: "packages/gemini-runner", name: "kittu-gemini-runner" },
+	{ directory: "packages/edge-worker", name: "kittu-edge-worker" },
+	{ directory: "apps/cli", name: "kittu-ai" },
 ];
 
 const exactSemver =

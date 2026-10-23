@@ -1,25 +1,25 @@
 import { EventEmitter } from "node:events";
 import { LinearClient } from "@linear/sdk";
-import { ClaudeRunner } from "cyrus-claude-runner";
-import type { EdgeWorkerConfig, RepositoryConfig } from "cyrus-core";
-import { LinearEventTransport } from "cyrus-linear-event-transport";
-import { createCyrusToolsServer } from "cyrus-mcp-tools";
+import { ClaudeRunner } from "kittu-claude-runner";
+import type { EdgeWorkerConfig, RepositoryConfig } from "kittu-core";
+import { LinearEventTransport } from "kittu-linear-event-transport";
+import { createKittuToolsServer } from "kittu-mcp-tools";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSessionManager } from "../src/AgentSessionManager.js";
 import { EdgeWorker } from "../src/EdgeWorker.js";
 import { SharedApplicationServer } from "../src/SharedApplicationServer.js";
-import { TEST_CYRUS_HOME } from "./test-dirs.js";
+import { TEST_KITTU_HOME } from "./test-dirs.js";
 
 // Mock all dependencies (mirrors EdgeWorker.issue-update-multiple-sessions.test.ts)
 vi.mock("fs/promises");
-vi.mock("cyrus-claude-runner");
-vi.mock("cyrus-mcp-tools");
-vi.mock("cyrus-codex-runner");
-vi.mock("cyrus-linear-event-transport");
+vi.mock("kittu-claude-runner");
+vi.mock("kittu-mcp-tools");
+vi.mock("kittu-codex-runner");
+vi.mock("kittu-linear-event-transport");
 vi.mock("@linear/sdk");
 vi.mock("../src/SharedApplicationServer.js");
 vi.mock("../src/AgentSessionManager.js");
-vi.mock("cyrus-core", async (importOriginal) => {
+vi.mock("kittu-core", async (importOriginal) => {
 	const actual = (await importOriginal()) as any;
 	return {
 		...actual,
@@ -97,7 +97,7 @@ describe("EdgeWorker - PR review trigger gate (CYPACK-1273)", () => {
 	function buildConfig(prReviewTrigger: boolean | undefined): EdgeWorkerConfig {
 		return {
 			proxyUrl: "http://localhost:3000",
-			cyrusHome: TEST_CYRUS_HOME,
+			kittuHome: TEST_KITTU_HOME,
 			repositories: [mockRepository],
 			linearWorkspaces: {
 				"test-workspace": { linearToken: "test-token" },
@@ -135,7 +135,7 @@ describe("EdgeWorker - PR review trigger gate (CYPACK-1273)", () => {
 		vi.spyOn(console, "error").mockImplementation(() => {});
 		delete process.env.GITHUB_BOT_USERNAME;
 
-		vi.mocked(createCyrusToolsServer).mockImplementation(() => {
+		vi.mocked(createKittuToolsServer).mockImplementation(() => {
 			return { server: {} } as any;
 		});
 
@@ -151,7 +151,7 @@ describe("EdgeWorker - PR review trigger gate (CYPACK-1273)", () => {
 		mockAgentSessionManager = {
 			getActiveMultiRepoSessionForRepository: vi.fn().mockReturnValue(null),
 			getActiveSessionsByBranchName: vi.fn().mockReturnValue([]),
-			createCyrusAgentSession: vi.fn(),
+			createKittuAgentSession: vi.fn(),
 			getSession: vi.fn().mockReturnValue(null),
 			setActivitySink: vi.fn(),
 			addAgentRunner: vi.fn(),
@@ -207,34 +207,34 @@ describe("EdgeWorker - PR review trigger gate (CYPACK-1273)", () => {
 		expect((edgeWorker as any).resolveGitHubToken).not.toHaveBeenCalled();
 		expect(mockGitHubCommentService.postIssueComment).not.toHaveBeenCalled();
 		expect(
-			mockAgentSessionManager.createCyrusAgentSession,
+			mockAgentSessionManager.createKittuAgentSession,
 		).not.toHaveBeenCalled();
 	});
 
-	it("ignores a review whose body carries the Cyrus marker (self-authored)", async () => {
+	it("ignores a review whose body carries the Kittu marker (self-authored)", async () => {
 		edgeWorker = createWorker(true);
 		const event = createPrReviewEvent();
-		event.payload.review.body = `Received your change request.\n\n<!-- cyrus-agent -->`;
+		event.payload.review.body = `Received your change request.\n\n<!-- kittu-agent -->`;
 
 		await (edgeWorker as any).handleGitHubWebhook(event);
 
 		expect((edgeWorker as any).resolveGitHubToken).not.toHaveBeenCalled();
 		expect(mockGitHubCommentService.postIssueComment).not.toHaveBeenCalled();
 		expect(
-			mockAgentSessionManager.createCyrusAgentSession,
+			mockAgentSessionManager.createKittuAgentSession,
 		).not.toHaveBeenCalled();
 	});
 
 	it("ignores a marked @mention comment even when a bot username is configured", async () => {
 		edgeWorker = createWorker(true);
-		process.env.GITHUB_BOT_USERNAME = "cyrusbot";
+		process.env.GITHUB_BOT_USERNAME = "kittubot";
 		const event = createPrReviewEvent();
 		event.eventType = "issue_comment";
 		event.payload = {
 			action: "created",
 			comment: {
 				id: 1,
-				body: "@cyrusbot done <!-- cyrus-agent -->",
+				body: "@kittubot done <!-- kittu-agent -->",
 				user: { login: "human-owner" },
 				html_url: "https://github.com/testorg/my-repo/pull/42#issuecomment-1",
 			},
@@ -321,7 +321,7 @@ describe("EdgeWorker - PR review trigger gate (CYPACK-1273)", () => {
 
 		await (edgeWorker as any).handleGitHubWebhook(secondEvent);
 		expect(
-			mockAgentSessionManager.createCyrusAgentSession,
+			mockAgentSessionManager.createKittuAgentSession,
 		).toHaveBeenCalledTimes(1);
 		expect(secondRunner.start).not.toHaveBeenCalled();
 
@@ -330,7 +330,7 @@ describe("EdgeWorker - PR review trigger gate (CYPACK-1273)", () => {
 		await vi.waitFor(() => expect(secondRunner.start).toHaveBeenCalledOnce());
 
 		expect(
-			mockAgentSessionManager.createCyrusAgentSession,
+			mockAgentSessionManager.createKittuAgentSession,
 		).toHaveBeenCalledTimes(2);
 	});
 

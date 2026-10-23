@@ -11,16 +11,16 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, sep } from "node:path";
-import type { ILogger } from "cyrus-core";
+import type { ILogger } from "kittu-core";
 
 /**
  * Parent-side git environment.
  *
- * The Cyrus process runs git and gh unsandboxed, in directories a sandboxed
+ * The Kittu process runs git and gh unsandboxed, in directories a sandboxed
  * session can write (its worktree, `.git` pointer files, a clone's `.git`).
  * Anything git discovers from there (a rewritten `commondir` or gitfile, a
  * planted `core.fsmonitor`, hooks, `url.*.insteadOf`) would run or redirect
- * with the Cyrus process's privileges and credentials. So every parent git
+ * with the Kittu process's privileges and credentials. So every parent git
  * call:
  *   - gets its repository location from paths the PARENT owns (GIT_DIR,
  *     GIT_COMMON_DIR, GIT_WORK_TREE), never discovered from the workspace;
@@ -29,7 +29,7 @@ import type { ILogger } from "cyrus-core";
  *   - runs via execFileSync (no shell) with a minimal explicit env.
  *
  * This env is built per call and passed as `env:` to the child only. It must
- * NEVER be put in the Cyrus service env or a session's env: sessions inherit
+ * NEVER be put in the Kittu service env or a session's env: sessions inherit
  * the parent env and would lose the project's own git hooks.
  *
  * The base env is minimal on purpose (PASSTHROUGH_ENV). It intentionally drops
@@ -113,8 +113,8 @@ export class GitEnvError extends Error {
 }
 
 export interface GitEnvOptions {
-	cyrusHome: string;
-	/** Empty directory for core.hooksPath. Defaults to `<cyrusHome>/no-hooks`. */
+	kittuHome: string;
+	/** Empty directory for core.hooksPath. Defaults to `<kittuHome>/no-hooks`. */
 	hooksDir?: string;
 	/** Credential helper path for network calls. Unset: ambient helper. */
 	credentialHelper?: string;
@@ -247,7 +247,7 @@ export function validateWorktreeGitdirs(
 }
 
 export class GitEnv {
-	private cyrusHome: string;
+	private kittuHome: string;
 	private hooksDirPath: string;
 	private credentialHelper?: string;
 	private ghBinaryPath?: string;
@@ -255,8 +255,8 @@ export class GitEnv {
 	private logger?: ILogger;
 
 	constructor(options: GitEnvOptions) {
-		this.cyrusHome = options.cyrusHome;
-		this.hooksDirPath = options.hooksDir ?? join(options.cyrusHome, "no-hooks");
+		this.kittuHome = options.kittuHome;
+		this.hooksDirPath = options.hooksDir ?? join(options.kittuHome, "no-hooks");
 		this.credentialHelper = options.credentialHelper;
 		this.ghBinaryPath = options.ghBinary;
 		this.allowFile = options.allowFileProtocol ?? false;
@@ -268,7 +268,7 @@ export class GitEnv {
 	}
 
 	get home(): string {
-		return this.cyrusHome;
+		return this.kittuHome;
 	}
 
 	/** The empty hooks dir; verified empty on EVERY use. */
@@ -472,7 +472,7 @@ export class GitEnv {
 		cleanup: () => void;
 	} {
 		if (!this.ghBinaryPath) throw new GitEnvError("ghBinary is not configured");
-		mkdirSync(this.cyrusHome, { recursive: true });
+		mkdirSync(this.kittuHome, { recursive: true });
 		const configDir = mkdtempSync(join(tmpdir(), "kittu-gh-"));
 		const env = this.pinnedEnv();
 		env.PATH = GH_PATH;
@@ -482,7 +482,7 @@ export class GitEnv {
 		if (token) env.GH_TOKEN = token;
 		return {
 			binary: this.ghBinaryPath,
-			cwd: this.cyrusHome,
+			cwd: this.kittuHome,
 			env,
 			cleanup: () => rmSync(configDir, { recursive: true, force: true }),
 		};

@@ -118,13 +118,13 @@ describe("github-webhook-utils", () => {
 	describe("extractCommentBody", () => {
 		it("returns comment body from issue_comment", () => {
 			expect(extractCommentBody(issueCommentEvent)).toBe(
-				"@cyrusagent Please fix the failing tests",
+				"@kittuagent Please fix the failing tests",
 			);
 		});
 
 		it("returns comment body from PR review comment", () => {
 			expect(extractCommentBody(prReviewCommentEvent)).toBe(
-				"@cyrusagent This function needs better error handling",
+				"@kittuagent This function needs better error handling",
 			);
 		});
 
@@ -271,20 +271,20 @@ describe("github-webhook-utils", () => {
 	});
 
 	describe("stripMention", () => {
-		it("strips @cyrusagent from comment body", () => {
-			expect(stripMention("@cyrusagent Please fix the failing tests")).toBe(
+		it("strips @kittuagent from comment body", () => {
+			expect(stripMention("@kittuagent Please fix the failing tests")).toBe(
 				"Please fix the failing tests",
 			);
 		});
 
 		it("strips mention from middle of text", () => {
-			expect(stripMention("Hey @cyrusagent please fix this")).toBe(
+			expect(stripMention("Hey @kittuagent please fix this")).toBe(
 				"Hey please fix this",
 			);
 		});
 
 		it("handles case-insensitive mentions", () => {
-			expect(stripMention("@CyrusAgent Please fix")).toBe("Please fix");
+			expect(stripMention("@KittuAgent Please fix")).toBe("Please fix");
 		});
 
 		it("strips custom mention handle", () => {
@@ -300,7 +300,7 @@ describe("github-webhook-utils", () => {
 		});
 
 		it("handles text that is only the mention", () => {
-			expect(stripMention("@cyrusagent")).toBe("");
+			expect(stripMention("@kittuagent")).toBe("");
 		});
 
 		it("handles mention with special regex characters in custom handle", () => {

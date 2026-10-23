@@ -1,5 +1,5 @@
 /**
- * Basic usage example for cyrus-simple-agent-runner
+ * Basic usage example for kittu-simple-agent-runner
  *
  * This example demonstrates how to use SimpleClaudeRunner to get
  * yes/no answers from an agent.
@@ -15,7 +15,7 @@ async function main() {
 	// Create runner
 	const runner = new SimpleClaudeRunner<YesNoResponse>({
 		validResponses: VALID_RESPONSES,
-		cyrusHome: process.env.CYRUS_HOME || "/tmp/cyrus",
+		kittuHome: process.env.KITTU_HOME || "/tmp/kittu",
 		model: "sonnet",
 		maxTurns: 3,
 		timeoutMs: 30000, // 30 seconds

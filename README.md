@@ -1,4 +1,4 @@
-# Cyrus
+# Kittu
 
 <div>
   <a href="https://github.com/ceedaragents/cyrus/actions">
@@ -9,9 +9,9 @@
 
 [![Discord](https://img.shields.io/discord/1443747721910685792?label=Discord&logo=discord&logoColor=white)](https://discord.gg/prrtADHYTt)
 
-Your (Claude Code|Codex|Cursor|Gemini|Opencode) powered (Linear|GitHub|GitLab|Slack) agent. Cyrus monitors (Linear|GitHub|GitLab|Slack) issues assigned to it, creates isolated Git worktrees for each issue, runs (Claude Code|Codex|Cursor|Gemini|Opencode) sessions to process them, and streams detailed agent activity updates back to (Linear|GitHub), along with rich interactions like dropdown selects and approvals.
+Your (Claude Code|Codex|Cursor|Gemini|Opencode) powered (Linear|GitHub|GitLab|Slack) agent. Kittu monitors (Linear|GitHub|GitLab|Slack) issues assigned to it, creates isolated Git worktrees for each issue, runs (Claude Code|Codex|Cursor|Gemini|Opencode) sessions to process them, and streams detailed agent activity updates back to (Linear|GitHub), along with rich interactions like dropdown selects and approvals.
 
-**Note:** Cyrus is a BYOK platform (bring your keys / subscriptions) for tokens.
+**Note:** Kittu is a BYOK platform (bring your keys / subscriptions) for tokens.
 
 ---
 
@@ -22,13 +22,13 @@ Your (Claude Code|Codex|Cursor|Gemini|Opencode) powered (Linear|GitHub|GitLab|Sl
 Zero cost option — host everything yourself with your own Linear OAuth app, GitHub App, and Slack App. An AI-guided setup skill handles the entire onboarding: installing dependencies, configuring auth, creating integration apps, and connecting repositories — so you don't have to follow a manual guide.
 
 ```bash
-npx skills add ceedaragents/cyrus -g
+npx skills add ugudlado/kittu -g
 ```
 
 Then in any AI coding agent (Claude Code, Codex, Cursor, etc.):
 
 ```
-/cyrus-setup
+/kittu-setup
 ```
 
 Or follow the **[manual setup guide](./docs/SELF_HOSTING.md)** if you prefer.
@@ -37,26 +37,26 @@ Or follow the **[manual setup guide](./docs/SELF_HOSTING.md)** if you prefer.
 
 ### Pro & Team Plans
 
-Configure Cyrus through the dashboard at [app.atcyrus.com](https://app.atcyrus.com).
+Configure Kittu through the dashboard at [app.atcyrus.com](https://app.atcyrus.com).
 
 #### For paid self-hosted deployments
 
-It is called 'self-hosted' because it uses a machine you control as the agent runtime. Networking layer and integrations are provided by the Cyrus cloud provider.
+It is called 'self-hosted' because it uses a machine you control as the agent runtime. Networking layer and integrations are provided by the Kittu cloud provider.
 
 ```bash
-# Install Cyrus
-npm install -g cyrus-ai
+# Install Kittu
+npm install -g kittu-ai
 
 # Authenticate with your token (provided during onboarding)
-cyrus auth <your-token>
+kittu auth <your-token>
 ```
 
-For Cyrus to create pull requests or merge requests, configure Git and your hosting CLI. See **[Git & GitHub Setup](./docs/GIT_GITHUB.md)** or **[Git & GitLab Setup](./docs/GIT_GITLAB.md)**.
+For Kittu to create pull requests or merge requests, configure Git and your hosting CLI. See **[Git & GitHub Setup](./docs/GIT_GITHUB.md)** or **[Git & GitLab Setup](./docs/GIT_GITLAB.md)**.
 
-Keep Cyrus running as a persistent process:
+Keep Kittu running as a persistent process:
 
-- **tmux**: `tmux new -s cyrus` then run `cyrus` (Ctrl+B, D to detach)
-- **pm2**: `pm2 start cyrus --name cyrus`
+- **tmux**: `tmux new -s kittu` then run `kittu` (Ctrl+B, D to detach)
+- **pm2**: `pm2 start kittu --name kittu`
 - **systemd**: See [Running as a Service](./docs/SELF_HOSTING.md#running-as-a-service)
 
 #### For cloud-hosted deployments
@@ -87,3 +87,9 @@ This project builds on the technologies built by the awesome teams at Linear, an
 
 - [Linear API](https://linear.app/developers)
 - [Anthropic Claude Code](https://www.claude.com/product/claude-code)
+
+<!-- kittu-compat:begin attribution -->
+## Based on Cyrus
+
+Kittu is a modified version of [Cyrus](https://github.com/cyrusagents/cyrus), Copyright the Cyrus authors, licensed under the [Apache License 2.0](LICENSE). It is not affiliated with or endorsed by the Cyrus project. See [NOTICE](NOTICE) and [CHANGELOG.md](CHANGELOG.md) for what was changed. This fork is built from source and is not published to npm (any `kittu-ai` package on npm is not ours).
+<!-- kittu-compat:end attribution -->

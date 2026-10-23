@@ -26,10 +26,10 @@ describe("GitService.getWritableGitMetadataDirectories", () => {
 	let service: GitService;
 
 	beforeEach(() => {
-		root = realpathSync(mkdtempSync(join(tmpdir(), "cyrus-gitmeta-")));
+		root = realpathSync(mkdtempSync(join(tmpdir(), "kittu-gitmeta-")));
 		repo = join(root, "repo");
 		worktree = join(root, "wt");
-		outside = join(root, "fake-cyrus-home");
+		outside = join(root, "fake-kittu-home");
 		mkdirSync(repo);
 		mkdirSync(outside);
 		git(repo, "init -q -b main");
@@ -39,7 +39,7 @@ describe("GitService.getWritableGitMetadataDirectories", () => {
 		);
 		git(repo, `worktree add -q -b feature ${worktree}`);
 		warn = vi.fn();
-		service = new GitService({ cyrusHome: root }, {
+		service = new GitService({ kittuHome: root }, {
 			debug: vi.fn(),
 			info: vi.fn(),
 			warn,

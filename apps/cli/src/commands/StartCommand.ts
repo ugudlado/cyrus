@@ -1,5 +1,5 @@
-import { getCyrusAppUrl } from "cyrus-cloudflare-tunnel-client";
-import type { EdgeConfig } from "cyrus-core";
+import { getKittuAppUrl } from "kittu-cloudflare-tunnel-client";
+import type { EdgeConfig } from "kittu-core";
 import { BaseCommand } from "./ICommand.js";
 
 /**
@@ -38,7 +38,7 @@ export class StartCommand extends BaseCommand {
 				});
 			} else {
 				this.logger.info("\n⏸️  No repositories configured");
-				this.logger.info("   Add one with: cyrus self-add-repo <git-url>");
+				this.logger.info("   Add one with: kittu self-add-repo <git-url>");
 			}
 			this.logger.divider(70);
 
@@ -52,7 +52,7 @@ export class StartCommand extends BaseCommand {
 				this.logger.info("\n💡 Cloudflare tunnel requires:");
 				this.logger.info("   - CLOUDFLARE_TOKEN environment variable");
 				this.logger.info(
-					`   - Get your token from: ${getCyrusAppUrl()}/onboarding`,
+					`   - Get your token from: ${getKittuAppUrl()}/onboarding`,
 				);
 			} else if (error.message?.includes("Failed to connect")) {
 				this.logger.info("\n💡 Connection issues can occur when:");

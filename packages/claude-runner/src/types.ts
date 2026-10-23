@@ -16,9 +16,9 @@ import type {
 	SpawnOptions,
 	WarmQuery,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { ILogger, OnAskUserQuestion } from "cyrus-core";
+import type { ILogger, OnAskUserQuestion } from "kittu-core";
 
-export type { OnAskUserQuestion } from "cyrus-core";
+export type { OnAskUserQuestion } from "kittu-core";
 
 /**
  * Output format configuration for structured outputs
@@ -28,7 +28,7 @@ export type OutputFormatConfig = OutputFormat;
 
 export interface ClaudeRunnerConfig {
 	/**
-	 * Untrusted-worktree mode (`CYRUS_UNTRUSTED_WORKTREE=1`): do not load
+	 * Untrusted-worktree mode (`KITTU_UNTRUSTED_WORKTREE=1`): do not load
 	 * `<worktree>/.env` or `<worktree>/.mcp.json`, and pass `settingSources: []`.
 	 */
 	untrustedWorktree?: boolean;
@@ -50,7 +50,7 @@ export interface ClaudeRunnerConfig {
 	mcpConfigPath?: string | string[]; // Single path or array of paths to compose
 	mcpConfig?: Record<string, McpServerConfig>; // Additional/override MCP servers
 	/**
-	 * Only use MCP servers explicitly supplied by Cyrus. When false, Claude Code
+	 * Only use MCP servers explicitly supplied by Kittu. When false, Claude Code
 	 * may also load project/user MCP settings, plugins, and authenticated
 	 * claude.ai connectors. Defaults to true.
 	 */
@@ -59,7 +59,7 @@ export interface ClaudeRunnerConfig {
 	fallbackModel?: string; // Fallback model if primary model is unavailable
 	maxTurns?: number; // Maximum number of turns before completing the session
 	tools?: string[]; // Built-in tools available in model context (empty array disables all tools)
-	cyrusHome: string; // Cyrus home directory
+	kittuHome: string; // Kittu home directory
 	logger?: ILogger; // Optional logger instance
 	promptVersions?: {
 		// Optional prompt template version information
@@ -112,7 +112,7 @@ export interface ClaudeRunnerConfig {
 	/**
 	 * Optional SessionStore that mirrors transcript entries to external storage.
 	 * Forwarded to the SDK's `query()` via `options.sessionStore`. Used to ship
-	 * session JSONL to the Cyrus hosted control plane so transcripts survive
+	 * session JSONL to the Kittu hosted control plane so transcripts survive
 	 * the ephemeral worktree and can be resumed from any host.
 	 */
 	sessionStore?: SessionStore;

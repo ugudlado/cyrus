@@ -21,8 +21,8 @@ import type {
 	AskUserQuestionResult,
 	IIssueTrackerService,
 	ILogger,
-} from "cyrus-core";
-import { AgentActivitySignal, createLogger } from "cyrus-core";
+} from "kittu-core";
+import { AgentActivitySignal, createLogger } from "kittu-core";
 
 /**
  * Pending question data stored while awaiting user response

@@ -1,5 +1,5 @@
 import { LinearClient } from "@linear/sdk";
-import type { EdgeWorkerConfig } from "cyrus-core";
+import type { EdgeWorkerConfig } from "kittu-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EdgeWorker } from "../src/EdgeWorker.js";
 
@@ -74,7 +74,7 @@ describe("EdgeWorker LinearClient Wrapper", () => {
 					linearWorkspaceName: "Test Workspace",
 				},
 			},
-			cyrusHome: "/test/.cyrus",
+			kittuHome: "/test/.kittu",
 			serverPort: 3456,
 			serverHost: "localhost",
 		};
@@ -173,11 +173,11 @@ describe("EdgeWorker LinearClient Wrapper", () => {
 	describe("tenant OAuth credentials", () => {
 		beforeEach(() => {
 			process.env.LINEAR_DIRECT_WEBHOOKS = "true";
-			process.env.CYRUS_HOST_EXTERNAL = "true";
+			process.env.KITTU_HOST_EXTERNAL = "true";
 		});
 		afterEach(() => {
 			delete process.env.LINEAR_DIRECT_WEBHOOKS;
-			delete process.env.CYRUS_HOST_EXTERNAL;
+			delete process.env.KITTU_HOST_EXTERNAL;
 		});
 
 		it("refreshes a tenant's workspace with that tenant's OAuth app, not the global one", () => {

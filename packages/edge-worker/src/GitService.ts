@@ -18,8 +18,14 @@ import type {
 	RepoSetupHookEventHandler,
 	RepositoryConfig,
 	Workspace,
-} from "cyrus-core";
-import { createLogger, getDefaultWorktreesDir, type ILogger } from "cyrus-core";
+} from "kittu-core";
+import {
+	createLogger,
+	defaultKittuHome,
+	getDefaultWorktreesDir,
+	hookScriptCandidates,
+	type ILogger,
+} from "kittu-core";
 import {
 	GitEnv,
 	GitEnvError,
@@ -45,11 +51,11 @@ export interface CreateGitWorktreeOptions {
 }
 
 export interface GitServiceOptions {
-	cyrusHome?: string;
+	kittuHome?: string;
 	/**
-	 * Untrusted-worktree mode: never run the worktree's `cyrus-setup.*` /
-	 * `cyrus-teardown.*` hook scripts (they are session-writable and run
-	 * unsandboxed with the Cyrus process env). The admin-configured global setup
+	 * Untrusted-worktree mode: never run the worktree's `kittu-setup.*` /
+	 * `kittu-teardown.*` hook scripts (they are session-writable and run
+	 * unsandboxed with the Kittu process env). The admin-configured global setup
 	 * script is unaffected.
 	 */
 	untrustedWorktree?: boolean;
@@ -68,7 +74,7 @@ export interface GitServiceOptions {
 export interface DeleteWorktreeOptions {
 	/**
 	 * Repositories involved with this issue's workspace. When provided, each
-	 * repo's `cyrus-teardown.sh` (if present) is invoked before worktree removal,
+	 * repo's `kittu-teardown.sh` (if present) is invoked before worktree removal,
 	 * with `cwd` set to that repo's worktree subdirectory.
 	 *
 	 * In the single-repo layout, the worktree subdirectory is the workspace root.
@@ -77,10 +83,10 @@ export interface DeleteWorktreeOptions {
 	repositories?: RepositoryConfig[];
 }
 
-/** Timeout for repo setup scripts (cyrus-setup.*). */
+/** Timeout for repo setup scripts (kittu-setup.*). */
 const SETUP_TIMEOUT_MS = 5 * 60 * 1000;
 
-/** Timeout for repo teardown scripts (cyrus-teardown.*). */
+/** Timeout for repo teardown scripts (kittu-teardown.*). */
 const TEARDOWN_TIMEOUT_MS = 2 * 60 * 1000;
 
 const HOOK_OUTPUT_TAIL_MAX_BYTES = 64 * 1024;
@@ -259,7 +265,7 @@ class HookOutputCollector {
 export class GitService {
 	private logger: ILogger;
 	private worktreeIncludeService: WorktreeIncludeService;
-	private cyrusHome: string;
+	private kittuHome: string;
 	private untrustedWorktree: boolean;
 	/** Parent-owned git env: location + config pins for every git call. */
 	readonly gitEnv: GitEnv;
@@ -267,12 +273,12 @@ export class GitService {
 	constructor(options?: GitServiceOptions, logger?: ILogger) {
 		this.logger = logger ?? createLogger({ component: "GitService" });
 		this.worktreeIncludeService = new WorktreeIncludeService(this.logger);
-		this.cyrusHome = options?.cyrusHome ?? join(homedir(), ".cyrus");
+		this.kittuHome = options?.kittuHome ?? defaultKittuHome();
 		this.untrustedWorktree = options?.untrustedWorktree ?? false;
 		this.gitEnv =
 			options?.gitEnv ??
 			new GitEnv({
-				cyrusHome: this.cyrusHome,
+				kittuHome: this.kittuHome,
 				hooksDir: options?.gitHooksDir,
 				credentialHelper: options?.gitCredentialHelper,
 				ghBinary: options?.ghBinary,
@@ -423,7 +429,7 @@ export class GitService {
 	 *
 	 * The raw value behind `git rev-parse --git-common-dir` comes from files
 	 * inside the worktree (`<worktree>/.git`, `worktrees/<n>/commondir`) that a
-	 * session can rewrite. A hostile session could point it at, say, `~/.cyrus`.
+	 * session can rewrite. A hostile session could point it at, say, `~/.kittu`.
 	 * So the grant is anchored on the configured repository: the only directory
 	 * ever returned is `realpath(<repositoryPath>/.git)`, and only when the
 	 * worktree's reported common dir resolves to exactly that path. Otherwise
@@ -1010,7 +1016,7 @@ export class GitService {
 				const worktrees = git(["worktree", "list", "--porcelain"]);
 
 				// Use exact line match to avoid substring false positives
-				// (e.g., "/path/CYSV-56" matching "/path/CYSV-56/cyrus")
+				// (e.g., "/path/CYSV-56" matching "/path/CYSV-56/kittu")
 				const worktreeLines = worktrees
 					.split("\n")
 					.filter((line) => line.startsWith("worktree "))
@@ -1328,7 +1334,7 @@ export class GitService {
 	 * directory is the root in both cases.
 	 *
 	 * If `options.repositories` is supplied, each repo's per-repo
-	 * `cyrus-teardown.sh` (if present in its repo root) is invoked **before**
+	 * `kittu-teardown.sh` (if present in its repo root) is invoked **before**
 	 * the worktrees are removed, with `cwd` set to that repo's worktree
 	 * subdirectory. A failure in one repo's teardown does not block the others
 	 * or the final `rmSync`.
@@ -1341,7 +1347,7 @@ export class GitService {
 		options: DeleteWorktreeOptions = {},
 	): Promise<void> {
 		const workspacePath = join(
-			getDefaultWorktreesDir(this.cyrusHome),
+			getDefaultWorktreesDir(this.kittuHome),
 			issueIdentifier,
 		);
 
@@ -1527,7 +1533,7 @@ export class GitService {
 	}
 
 	/**
-	 * Find and run a repository-specific setup script (cyrus-setup.sh/.ps1/.cmd/.bat)
+	 * Find and run a repository-specific setup script (kittu-setup.sh/.ps1/.cmd/.bat)
 	 */
 	private async runRepoSetupScript(
 		workspacePath: string,
@@ -1551,7 +1557,7 @@ export class GitService {
 	}
 
 	/**
-	 * Find and run a repository-specific teardown script (cyrus-teardown.sh/.ps1/.cmd/.bat).
+	 * Find and run a repository-specific teardown script (kittu-teardown.sh/.ps1/.cmd/.bat).
 	 *
 	 * Mirrors {@link runRepoSetupScript} but is invoked from {@link deleteWorktree}
 	 * immediately before the worktree subdirectory is removed. Only
@@ -1574,7 +1580,7 @@ export class GitService {
 
 	/**
 	 * Shared discovery+dispatch for repo-scoped hook scripts (setup and teardown).
-	 * Looks in `workspacePath` for `cyrus-<hook>.{sh,ps1,cmd,bat}` and runs the
+	 * Looks in `workspacePath` for `kittu-<hook>.{sh,ps1,cmd,bat}` and runs the
 	 * first compatible variant with `cwd` set to `workspacePath`.
 	 */
 	private async runRepoHookScript(opts: {
@@ -1593,12 +1599,7 @@ export class GitService {
 			return;
 		}
 		const isWindows = process.platform === "win32";
-		const candidates = [
-			{ file: `cyrus-${opts.hook}.sh`, platform: "unix" as const },
-			{ file: `cyrus-${opts.hook}.ps1`, platform: "windows" as const },
-			{ file: `cyrus-${opts.hook}.cmd`, platform: "windows" as const },
-			{ file: `cyrus-${opts.hook}.bat`, platform: "windows" as const },
-		];
+		const candidates = hookScriptCandidates(opts.hook);
 
 		const available = candidates.find((c) => {
 			const scriptPath = join(opts.workspacePath, c.file);
@@ -1707,8 +1708,7 @@ export class GitService {
 							repositoryName,
 							durationMs: Date.now() - startedAt,
 							errorMessage: "Repository setup hook is not executable",
-							stderrTail:
-								"Make cyrus-setup.sh executable in the repository and commit the executable bit: git update-index --chmod=+x cyrus-setup.sh",
+							stderrTail: `Make ${scriptName} executable in the repository and commit the executable bit: git update-index --chmod=+x ${scriptName}`,
 							truncated: false,
 						});
 					}

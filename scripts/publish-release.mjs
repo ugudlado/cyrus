@@ -232,7 +232,7 @@ async function run() {
 		);
 	}
 	if (process.env.GITHUB_REF !== "refs/heads/main") {
-		throw new Error("Cyrus releases must run from main.");
+		throw new Error("Kittu releases must run from main.");
 	}
 	if (testMode) {
 		if (
