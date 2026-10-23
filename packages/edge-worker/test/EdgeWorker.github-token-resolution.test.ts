@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { RepositoryConfig } from "cyrus-core";
-import { GitHubTokenStore } from "cyrus-core";
+import type { RepositoryConfig } from "kittu-core";
+import { GitHubTokenStore } from "kittu-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EdgeWorker } from "../src/EdgeWorker.js";
 
@@ -18,7 +18,7 @@ import { EdgeWorker } from "../src/EdgeWorker.js";
  * EdgeWorker constructor.
  */
 describe("EdgeWorker.resolveGitHubToken precedence (CYHOST-913)", () => {
-	let cyrusHome: string;
+	let kittuHome: string;
 	let store: GitHubTokenStore;
 	let savedGitHubTokenEnv: string | undefined;
 	let savedTokenFileEnv: string | undefined;
@@ -57,8 +57,8 @@ describe("EdgeWorker.resolveGitHubToken precedence (CYHOST-913)", () => {
 	}
 
 	beforeEach(() => {
-		cyrusHome = mkdtempSync(join(tmpdir(), "cyrus-token-resolution-"));
-		store = new GitHubTokenStore(cyrusHome);
+		kittuHome = mkdtempSync(join(tmpdir(), "kittu-token-resolution-"));
+		store = new GitHubTokenStore(kittuHome);
 		savedGitHubTokenEnv = process.env.GITHUB_TOKEN;
 		delete process.env.GITHUB_TOKEN;
 		savedTokenFileEnv = process.env.GITHUB_TOKEN_FILE;
@@ -72,7 +72,7 @@ describe("EdgeWorker.resolveGitHubToken precedence (CYHOST-913)", () => {
 		} else {
 			process.env.GITHUB_TOKEN_FILE = savedTokenFileEnv;
 		}
-		rmSync(cyrusHome, { recursive: true, force: true });
+		rmSync(kittuHome, { recursive: true, force: true });
 		if (savedGitHubTokenEnv === undefined) {
 			delete process.env.GITHUB_TOKEN;
 		} else {
@@ -193,7 +193,7 @@ describe("EdgeWorker.resolveGitHubToken precedence (CYHOST-913)", () => {
 		let tokenFile: string;
 
 		beforeEach(() => {
-			tokenFile = join(cyrusHome, "github-token");
+			tokenFile = join(kittuHome, "github-token");
 			process.env.GITHUB_TOKEN_FILE = tokenFile;
 			process.env.GITHUB_TOKEN = "ghp_pat";
 		});

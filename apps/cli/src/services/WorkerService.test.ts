@@ -3,8 +3,8 @@ import {
 	EdgeConfigSchema,
 	type EdgeWorkerConfig,
 	type RepositoryConfig,
-} from "cyrus-core";
-import type { GitService } from "cyrus-edge-worker";
+} from "kittu-core";
+import type { GitService } from "kittu-edge-worker";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConfigService } from "./ConfigService.js";
 import type { Logger } from "./Logger.js";
@@ -16,7 +16,7 @@ const edgeWorkerInstances: Array<{
 	start: ReturnType<typeof vi.fn>;
 }> = [];
 
-vi.mock("cyrus-edge-worker", () => ({
+vi.mock("kittu-edge-worker", () => ({
 	EdgeWorker: vi.fn().mockImplementation(function (config: EdgeWorkerConfig) {
 		const instance = {
 			config,
@@ -29,11 +29,11 @@ vi.mock("cyrus-edge-worker", () => ({
 	}),
 }));
 
-vi.mock("cyrus-cloudflare-tunnel-client", () => ({
-	getCyrusAppUrl: vi.fn(),
+vi.mock("kittu-cloudflare-tunnel-client", () => ({
+	getKittuAppUrl: vi.fn(),
 }));
 
-vi.mock("cyrus-slack-event-transport", () => ({
+vi.mock("kittu-slack-event-transport", () => ({
 	SlackEventTransport: vi.fn(),
 }));
 
@@ -58,7 +58,7 @@ describe("WorkerService", () => {
 	function createWorkerService(edgeConfig: EdgeConfig) {
 		const configService = {
 			load: () => edgeConfig,
-			getConfigPath: () => "/tmp/cyrus/config.json",
+			getConfigPath: () => "/tmp/kittu/config.json",
 		} as unknown as ConfigService;
 		const gitService = { createGitWorktree: vi.fn() } as unknown as GitService;
 		const logger = {
@@ -71,7 +71,7 @@ describe("WorkerService", () => {
 		return new WorkerService(
 			configService,
 			gitService,
-			"/tmp/cyrus",
+			"/tmp/kittu",
 			logger,
 			"test-version",
 		);
@@ -206,8 +206,8 @@ describe("WorkerService", () => {
 	});
 
 	it("prefers OpenCode model environment defaults over config defaults", async () => {
-		vi.stubEnv("CYRUS_OPENCODE_DEFAULT_MODEL", "openai/gpt-5.5");
-		vi.stubEnv("CYRUS_OPENCODE_DEFAULT_FALLBACK_MODEL", "openai/gpt-5-mini");
+		vi.stubEnv("KITTU_OPENCODE_DEFAULT_MODEL", "openai/gpt-5.5");
+		vi.stubEnv("KITTU_OPENCODE_DEFAULT_FALLBACK_MODEL", "openai/gpt-5-mini");
 
 		const config = await startService({
 			repositories: [],
@@ -220,7 +220,7 @@ describe("WorkerService", () => {
 	});
 
 	it("prefers OpenCode provider/model inference environment default over config default", async () => {
-		vi.stubEnv("CYRUS_INFER_OPENCODE_RUNNER_FROM_PROVIDER_MODEL", "true");
+		vi.stubEnv("KITTU_INFER_OPENCODE_RUNNER_FROM_PROVIDER_MODEL", "true");
 
 		const config = await startService({
 			repositories: [],

@@ -28,7 +28,7 @@ import type {
 	TranslationResult,
 	UnassignMessage,
 	UserPromptMessage,
-} from "cyrus-core";
+} from "kittu-core";
 import {
 	type AgentSessionCreatedWebhook,
 	type AgentSessionPromptedWebhook,
@@ -44,7 +44,7 @@ import {
 	isIssueUnassignedWebhook,
 	type Webhook,
 	type WebhookIssue,
-} from "cyrus-core";
+} from "kittu-core";
 
 // Helper type for safely accessing nested properties that may not exist in webhook types
 type SafeRecord = Record<string, unknown>;

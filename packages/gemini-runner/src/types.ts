@@ -10,7 +10,7 @@ import type {
 	AgentSessionInfo,
 	McpServerConfig,
 	SDKMessage,
-} from "cyrus-core";
+} from "kittu-core";
 
 /**
  * Gemini CLI MCP server configuration
@@ -161,7 +161,7 @@ export {
 	WriteTodosToolResultSchema,
 	WriteTodosToolUseEventSchema,
 } from "./schemas.js";
-// Re-export McpServerConfig from cyrus-core for convenience
+// Re-export McpServerConfig from kittu-core for convenience
 export type { McpServerConfig };
 
 /**
@@ -177,7 +177,7 @@ export type { McpServerConfig };
  * @example
  * ```typescript
  * const config: GeminiRunnerConfig = {
- *   cyrusHome: '/home/user/.cyrus',
+ *   kittuHome: '/home/user/.kittu',
  *   workingDirectory: '/path/to/repo',
  *   mcpConfig: {
  *     linear: {

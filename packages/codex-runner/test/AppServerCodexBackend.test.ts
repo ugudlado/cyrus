@@ -175,7 +175,7 @@ describe("AppServerCodexBackend", () => {
 			codexPath: "/bin/true",
 			sandbox: {
 				kind: "profile",
-				profileId: "cyrus-sandbox",
+				profileId: "kittu-sandbox",
 				networkAccess: false,
 				filesystem: {
 					":minimal": "read",
@@ -192,11 +192,11 @@ describe("AppServerCodexBackend", () => {
 			config?: Record<string, unknown>;
 		};
 		// `permissions` and `sandbox` are mutually exclusive — only permissions is set.
-		expect(params.permissions).toBe("cyrus-sandbox");
+		expect(params.permissions).toBe("kittu-sandbox");
 		expect(params.sandbox).toBeUndefined();
 		expect(params.config?.sandbox_workspace_write).toBeUndefined();
 		expect(params.config?.permissions).toEqual({
-			"cyrus-sandbox": {
+			"kittu-sandbox": {
 				filesystem: {
 					":minimal": "read",
 					":workspace_roots": "write",

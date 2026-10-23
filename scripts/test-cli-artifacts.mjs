@@ -124,7 +124,7 @@ export function bundle(
 	});
 	// Refuse to mix outputs with a previous attempt.
 	mkdirSync(outputDir);
-	const bundleName = `cyrus-${version}-test-bundle`;
+	const bundleName = `kittu-${version}-test-bundle`;
 	const staging = join(outputDir, bundleName);
 	mkdirSync(staging);
 	for (const { file } of packages)
@@ -170,20 +170,20 @@ mkdir "$prefix/test-home" "$prefix/cache" "$prefix/tmp" \
 isolated_env=(env -i "PATH=$PATH" "HOME=$prefix/test-home" \
   "TMPDIR=$prefix/tmp" "TMP=$prefix/tmp" "TEMP=$prefix/tmp" \
   "XDG_CONFIG_HOME=$prefix/test-home/.config" "XDG_CACHE_HOME=$prefix/test-home/.cache" \
-  "XDG_DATA_HOME=$prefix/test-home/.local" "CYRUS_SENTRY_DISABLED=1" \
+  "XDG_DATA_HOME=$prefix/test-home/.local" "KITTU_SENTRY_DISABLED=1" \
   "NPM_CONFIG_USERCONFIG=$prefix/test-home/npm-user.npmrc" \
   "NPM_CONFIG_GLOBALCONFIG=$prefix/test-home/npm-global.npmrc" \
   "NPM_CONFIG_CACHE=$prefix/cache" "NPM_CONFIG_REGISTRY=https://registry.npmjs.org")
 "\${isolated_env[@]}" npm install --global --prefix "$prefix" --no-audit --no-fund ./*.tgz
-actual="$("\${isolated_env[@]}" "$prefix/bin/cyrus" --version)"
+actual="$("\${isolated_env[@]}" "$prefix/bin/kittu" --version)"
 test "$actual" = '${version}'
-"\${isolated_env[@]}" "$prefix/bin/cyrus" --help > /dev/null
-printf 'Verified Cyrus %s at %s/bin/cyrus\\n' "$actual" "$prefix"
+"\${isolated_env[@]}" "$prefix/bin/kittu" --help > /dev/null
+printf 'Verified Kittu %s at %s/bin/kittu\\n' "$actual" "$prefix"
 `,
 	);
 	writeFileSync(
 		join(staging, "INSTALL.md"),
-		`# Cyrus test artifact ${version}
+		`# Kittu test artifact ${version}
 
 Source: ${sourceSha}
 Workflow: ${workflowSha}
@@ -195,8 +195,8 @@ The installer creates private test-home/cache directories beneath that prefix,
 uses empty npm config files and a clean child environment for installation and
 CLI checks, and preserves the caller's installation, home, auth and configuration.
 All ${packages.length} coordinated packages are installed together. npm downloads
-external dependencies; no Cyrus prerelease needs to exist on the registry.
-Use the resulting prefix/bin/cyrus with a separate --cyrus-home for testing.
+external dependencies; no Kittu prerelease needs to exist on the registry.
+Use the resulting prefix/bin/kittu with a separate --kittu-home for testing.
 This artifact is not an npm publication, stable release, or provider acceptance proof.
 `,
 	);

@@ -3,15 +3,18 @@ import type {
 	HookCallbackMatcher,
 	HookEvent,
 	PostToolUseHookInput,
-} from "cyrus-claude-runner";
-import type { ILogger } from "cyrus-core";
+} from "kittu-claude-runner";
+import type { ILogger } from "kittu-core";
 
 /**
- * The hidden HTML marker that identifies a PR/MR description as Cyrus-authored.
+ * The hidden HTML marker that identifies a PR/MR description as Kittu-authored.
  * Its presence is what tells our GitHub/GitLab webhook handlers that a
- * "Changes requested" or comment event should be forwarded back to Cyrus.
+ * "Changes requested" or comment event should be forwarded back to Kittu.
  */
-export const CYRUS_PR_MARKER = "<!-- generated-by-cyrus -->";
+export const KITTU_PR_MARKER = "<!-- generated-by-kittu -->";
+
+/** Marker written by pre-rebrand installs; still recognised, never written. */
+const LEGACY_PR_MARKER = "<!-- generated-by-cyrus -->"; // kittu-compat: legacy marker
 
 /**
  * Provider-specific knowledge about how to detect PR/MR mutating commands and
@@ -37,14 +40,14 @@ export interface PrMarkerProvider {
  */
 export function appendMarker(body: string | null | undefined): string {
 	const current = body ?? "";
-	if (current.includes(CYRUS_PR_MARKER)) {
+	if (current.includes(KITTU_PR_MARKER) || current.includes(LEGACY_PR_MARKER)) {
 		return current;
 	}
 	const trimmed = current.replace(/\s+$/, "");
 	if (trimmed.length === 0) {
-		return CYRUS_PR_MARKER;
+		return KITTU_PR_MARKER;
 	}
-	return `${trimmed}\n\n${CYRUS_PR_MARKER}`;
+	return `${trimmed}\n\n${KITTU_PR_MARKER}`;
 }
 
 /**
@@ -105,7 +108,7 @@ export class GitHubPrMarkerProvider implements PrMarkerProvider {
 			return;
 		}
 		log.info(
-			`[PrMarkerHook] Appended Cyrus marker to GitHub PR #${payload.number}`,
+			`[PrMarkerHook] Appended Kittu marker to GitHub PR #${payload.number}`,
 		);
 	}
 }
@@ -159,14 +162,14 @@ export class GitLabMrMarkerProvider implements PrMarkerProvider {
 			return;
 		}
 		log.info(
-			`[PrMarkerHook] Appended Cyrus marker to GitLab MR !${payload.iid}`,
+			`[PrMarkerHook] Appended Kittu marker to GitLab MR !${payload.iid}`,
 		);
 	}
 }
 
 /**
- * Build the PostToolUse hook that ensures Cyrus's identifying marker is
- * present on every PR/MR Cyrus creates or updates.
+ * Build the PostToolUse hook that ensures Kittu's identifying marker is
+ * present on every PR/MR Kittu creates or updates.
  *
  * Wired alongside the screenshot/stop hooks in RunnerConfigBuilder. Designed
  * around the strategy pattern: `providers` is injectable so tests can stub

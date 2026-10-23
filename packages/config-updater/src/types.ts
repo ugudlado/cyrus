@@ -1,4 +1,4 @@
-import { EdgeConfigPayloadSchema } from "cyrus-core";
+import { EdgeConfigPayloadSchema } from "kittu-core";
 import { z } from "zod";
 
 /**
@@ -22,25 +22,25 @@ export interface DeleteRepositoryPayload {
 }
 
 /**
- * Cyrus config update payload schema
+ * Kittu config update payload schema
  * Extends EdgeConfigPayloadSchema with operation flags for the update process.
  * Uses EdgeConfigPayloadSchema (not EdgeConfigSchema) because incoming payloads
  * may omit workspaceBaseDir - the handler applies a default value.
  */
-export const CyrusConfigPayloadSchema = EdgeConfigPayloadSchema.extend({
-	restartCyrus: z.boolean().optional(),
+export const KittuConfigPayloadSchema = EdgeConfigPayloadSchema.extend({
+	restartKittu: z.boolean().optional(),
 	backupConfig: z.boolean().optional(),
 });
 
-export type CyrusConfigPayload = z.infer<typeof CyrusConfigPayloadSchema>;
+export type KittuConfigPayload = z.infer<typeof KittuConfigPayloadSchema>;
 
 /**
- * Cyrus environment variables payload (for Claude token)
+ * Kittu environment variables payload (for Claude token)
  */
-export interface CyrusEnvPayload {
+export interface KittuEnvPayload {
 	variables?: Record<string, string>;
 	ANTHROPIC_API_KEY?: string;
-	restartCyrus?: boolean;
+	restartKittu?: boolean;
 	backupEnv?: boolean;
 	[key: string]: string | boolean | Record<string, string> | undefined;
 }

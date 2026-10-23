@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { createLogger, type ILogger } from "cyrus-core";
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { createLogger, type ILogger } from "kittu-core";
 import type {
 	ZulipEventTransportConfig,
 	ZulipEventTransportEvents,

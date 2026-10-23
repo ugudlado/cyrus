@@ -1,4 +1,4 @@
-import type { IMessageFormatter } from "cyrus-core";
+import type { IMessageFormatter } from "kittu-core";
 
 type ToolInput = Record<string, unknown>;
 

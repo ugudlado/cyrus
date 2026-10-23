@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { ILogger, RunnerType } from "cyrus-core";
+import type { ILogger, RunnerType } from "kittu-core";
 import { describe, expect, it } from "vitest";
 import {
 	type IChatToolResolver,
@@ -71,7 +71,7 @@ describe("RunnerConfigBuilder.buildChatConfig", () => {
 			workspaceName: "slack-thread-x",
 			systemPrompt: "test",
 			sessionId: "sess-1",
-			cyrusHome: "/tmp/cyrus-home-test",
+			kittuHome: "/tmp/kittu-home-test",
 			platformName: "slack",
 			logger: silentLogger,
 			onMessage: () => {},
@@ -89,8 +89,8 @@ describe("RunnerConfigBuilder.buildChatConfig", () => {
 
 	it("includes autoMemoryDirectory in allowedDirectories so the session can read existing memory files (CYPACK-1197)", () => {
 		const builder = makeBuilder();
-		const cyrusHome = "/tmp/cyrus-home-test";
-		const workspacePath = join(cyrusHome, "slack-workspaces", "thread-x");
+		const kittuHome = "/tmp/kittu-home-test";
+		const workspacePath = join(kittuHome, "slack-workspaces", "thread-x");
 		const repositoryPaths = ["/repo/one", "/repo/two"];
 
 		const config = builder.buildChatConfig({
@@ -98,7 +98,7 @@ describe("RunnerConfigBuilder.buildChatConfig", () => {
 			workspaceName: "slack-thread-x",
 			systemPrompt: "test",
 			sessionId: "sess-1",
-			cyrusHome,
+			kittuHome,
 			platformName: "slack",
 			repositoryPaths,
 			logger: silentLogger,
@@ -106,7 +106,7 @@ describe("RunnerConfigBuilder.buildChatConfig", () => {
 			onError: () => {},
 		});
 
-		const expectedAutoMemoryDir = join(cyrusHome, "slack-memory");
+		const expectedAutoMemoryDir = join(kittuHome, "slack-memory");
 		expect(config.autoMemoryDirectory).toBe(expectedAutoMemoryDir);
 		expect(config.allowedDirectories).toEqual([
 			workspacePath,
@@ -116,9 +116,9 @@ describe("RunnerConfigBuilder.buildChatConfig", () => {
 	});
 
 	describe("chat OS sandbox", () => {
-		const cyrusHome = "/tmp/cyrus-home-test";
-		const workspacePath = join(cyrusHome, "slack-workspaces", "thread-x");
-		const memoryDir = join(cyrusHome, "slack-memory");
+		const kittuHome = "/tmp/kittu-home-test";
+		const workspacePath = join(kittuHome, "slack-workspaces", "thread-x");
+		const memoryDir = join(kittuHome, "slack-memory");
 		const sandboxSettings = {
 			enabled: true,
 			network: { httpProxyPort: 8080, socksProxyPort: 8081 },
@@ -128,7 +128,7 @@ describe("RunnerConfigBuilder.buildChatConfig", () => {
 			workspaceName: "slack-thread-x",
 			systemPrompt: "test",
 			sessionId: "sess-1",
-			cyrusHome,
+			kittuHome,
 			platformName: "slack",
 			logger: silentLogger,
 			onMessage: () => {},
@@ -150,7 +150,7 @@ describe("RunnerConfigBuilder.buildChatConfig", () => {
 				input({
 					sandboxSettings,
 					egressCaCertPath: "/tmp/ca.pem",
-					repositoryPaths: ["/repos/jusplay", "/repos/cyrus-sandbox-app"],
+					repositoryPaths: ["/repos/jusplay", "/repos/kittu-sandbox-app"],
 				}),
 			) as any;
 			expect(config.sandbox).toEqual({
@@ -163,7 +163,7 @@ describe("RunnerConfigBuilder.buildChatConfig", () => {
 						workspacePath,
 						memoryDir,
 						"/repos/jusplay",
-						"/repos/cyrus-sandbox-app",
+						"/repos/kittu-sandbox-app",
 					],
 					denyRead: ["~/"],
 					allowWrite: [workspacePath, memoryDir],
@@ -192,14 +192,14 @@ describe("RunnerConfigBuilder.buildChatConfig", () => {
 
 	it("passes managed skill plugins and scoped skill names to chat runner configs", () => {
 		const builder = makeBuilder();
-		const plugins = [{ type: "local" as const, path: "/cyrus/user-skills" }];
+		const plugins = [{ type: "local" as const, path: "/kittu/user-skills" }];
 
 		const config = builder.buildChatConfig({
 			workspacePath: "/tmp/slack-workspace",
 			workspaceName: "slack-thread-x",
 			systemPrompt: "test",
 			sessionId: "sess-1",
-			cyrusHome: "/tmp/cyrus-home-test",
+			kittuHome: "/tmp/kittu-home-test",
 			platformName: "slack",
 			plugins,
 			skills: ["agent-browser", "test-user-skills"],
@@ -227,7 +227,7 @@ describe("RunnerConfigBuilder.buildChatConfig", () => {
 				workspaceName: "slack-thread-x",
 				systemPrompt: "test",
 				sessionId: "sess-1",
-				cyrusHome: "/tmp/cyrus-home-test",
+				kittuHome: "/tmp/kittu-home-test",
 				platformName: "slack",
 				repository: {
 					id: "repo-1",
@@ -264,7 +264,7 @@ describe("RunnerConfigBuilder.buildChatConfig", () => {
 			sessionId: "sess-1",
 			resumeSessionId: "opencode-chat-session",
 			runnerType: "opencode",
-			cyrusHome: "/tmp/cyrus-home-test",
+			kittuHome: "/tmp/kittu-home-test",
 			platformName: "slack",
 			logger: silentLogger,
 			onMessage: () => {},
@@ -279,7 +279,7 @@ describe("RunnerConfigBuilder.buildChatConfig", () => {
 describe("RunnerConfigBuilder.buildIssueConfig", () => {
 	it("does not pass Claude SDK skills plugins to OpenCode issue sessions", () => {
 		const builder = makeIssueBuilder("opencode");
-		const plugins = [{ type: "local", path: "/tmp/cyrus-skills-plugin" }];
+		const plugins = [{ type: "local", path: "/tmp/kittu-skills-plugin" }];
 
 		const { config, runnerType } = builder.buildIssueConfig({
 			session: {
@@ -297,7 +297,7 @@ describe("RunnerConfigBuilder.buildIssueConfig", () => {
 			allowedDirectories: ["/tmp/worktree"],
 			disallowedTools: [],
 			labels: ["opencode"],
-			cyrusHome: "/tmp/cyrus",
+			kittuHome: "/tmp/kittu",
 			logger: silentLogger,
 			onMessage: () => {},
 			onError: () => {},
@@ -313,7 +313,7 @@ describe("RunnerConfigBuilder.buildIssueConfig", () => {
 
 	it("passes scoped skills plugins to Claude issue sessions", () => {
 		const builder = makeIssueBuilder("claude");
-		const plugins = [{ type: "local", path: "/tmp/cyrus-skills-plugin" }];
+		const plugins = [{ type: "local", path: "/tmp/kittu-skills-plugin" }];
 
 		const { config, runnerType } = builder.buildIssueConfig({
 			session: {
@@ -331,7 +331,7 @@ describe("RunnerConfigBuilder.buildIssueConfig", () => {
 			allowedDirectories: ["/tmp/worktree"],
 			disallowedTools: [],
 			labels: ["claude"],
-			cyrusHome: "/tmp/cyrus",
+			kittuHome: "/tmp/kittu",
 			logger: silentLogger,
 			onMessage: () => {},
 			onError: () => {},
@@ -372,7 +372,7 @@ describe("RunnerConfigBuilder.buildIssueConfig", () => {
 				allowedDirectories: ["/tmp/worktree"],
 				disallowedTools: [],
 				labels: [selectedRunner],
-				cyrusHome: "/tmp/cyrus",
+				kittuHome: "/tmp/kittu",
 				logger: silentLogger,
 				onMessage: () => {},
 				onError: () => {},

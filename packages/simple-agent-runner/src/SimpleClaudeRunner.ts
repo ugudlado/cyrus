@@ -1,11 +1,11 @@
-import { ClaudeRunner } from "cyrus-claude-runner";
-import type { SDKMessage } from "cyrus-core";
+import { ClaudeRunner } from "kittu-claude-runner";
+import type { SDKMessage } from "kittu-core";
 import { NoResponseError, SessionError } from "./errors.js";
 import { SimpleAgentRunner } from "./SimpleAgentRunner.js";
 import type { SimpleAgentQueryOptions } from "./types.js";
 
 /**
- * Concrete implementation using ClaudeRunner from cyrus-claude-runner package.
+ * Concrete implementation using ClaudeRunner from kittu-claude-runner package.
  *
  * This implementation uses the Claude Agent SDK to execute queries and
  * constrains the responses to an enumerated set.
@@ -29,7 +29,7 @@ export class SimpleClaudeRunner<T extends string> extends SimpleAgentRunner<T> {
 		// Create ClaudeRunner with configuration
 		const runner = new ClaudeRunner({
 			workingDirectory: this.config.workingDirectory,
-			cyrusHome: this.config.cyrusHome,
+			kittuHome: this.config.kittuHome,
 			model: this.config.model,
 			fallbackModel: this.config.fallbackModel,
 			maxTurns: this.config.maxTurns,
@@ -92,8 +92,7 @@ export class SimpleClaudeRunner<T extends string> extends SimpleAgentRunner<T> {
 			if (
 				message.type === "assistant" &&
 				"message" in message &&
-				message.message &&
-				message.message.content
+				message.message?.content
 			) {
 				// Extract text from content blocks
 				for (const block of message.message.content) {
@@ -156,8 +155,7 @@ export class SimpleClaudeRunner<T extends string> extends SimpleAgentRunner<T> {
 		if (
 			message.type === "assistant" &&
 			"message" in message &&
-			message.message &&
-			message.message.content
+			message.message?.content
 		) {
 			for (const block of message.message.content) {
 				if (typeof block === "object" && block !== null && "type" in block) {

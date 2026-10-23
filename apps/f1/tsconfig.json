@@ -6,8 +6,8 @@
 		"module": "NodeNext",
 		"moduleResolution": "NodeNext",
 		"paths": {
-			"cyrus-core": ["../../packages/core/dist/index.d.ts"],
-			"cyrus-edge-worker": [
+			"kittu-core": ["../../packages/core/dist/index.d.ts"],
+			"kittu-edge-worker": [
 				"../../packages/edge-worker/dist/edge-worker/src/index.d.ts"
 			]
 		}

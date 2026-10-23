@@ -30,19 +30,19 @@ const configuredPackages = [
 	),
 ].map(([, directory, name]) => ({ directory, name }));
 
-describe("trusted Cyrus release workflow", () => {
+describe("trusted Kittu release workflow", () => {
 	it("is an on-demand, main-only, serialized workflow", () => {
 		expect(workflow).toContain("workflow_dispatch:");
 		expect(workflow).not.toMatch(/^\s+push:/m);
 		expect(workflow).not.toMatch(/^\s+pull_request:/m);
 		expect(workflow).toContain('"refs/heads/main"');
-		expect(workflow).toContain("group: release-cyrus-cli");
+		expect(workflow).toContain("group: release-kittu-cli");
 		expect(workflow).toContain("cancel-in-progress: false");
 		expect(workflow).not.toContain(
-			`RELEASE_ARTIFACTS: \${{ runner.temp }}/cyrus-release`,
+			`RELEASE_ARTIFACTS: \${{ runner.temp }}/kittu-release`,
 		);
 		expect(workflow).toContain(
-			'echo "RELEASE_ARTIFACTS=$RUNNER_TEMP/cyrus-release" >> "$GITHUB_ENV"',
+			'echo "RELEASE_ARTIFACTS=$RUNNER_TEMP/kittu-release" >> "$GITHUB_ENV"',
 		);
 	});
 
@@ -76,7 +76,7 @@ describe("trusted Cyrus release workflow", () => {
 	it("gates publishing on audit, tests, types, build, and package inspection", () => {
 		expect(workflow).toContain("pnpm audit --audit-level low");
 		expect(workflow).toContain("pnpm test:packages:run");
-		expect(workflow).toContain("pnpm --filter cyrus-ai test:run");
+		expect(workflow).toContain("pnpm --filter kittu-ai test:run");
 		expect(workflow).toContain("pnpm typecheck");
 		expect(workflow).toContain("pnpm build");
 		expect(workflow.indexOf("run: pnpm build")).toBeLessThan(
@@ -90,10 +90,10 @@ describe("trusted Cyrus release workflow", () => {
 			`npm install --global "\${release_tarballs[@]}"`,
 		);
 		expect(workflow).not.toContain(
-			`npm install --global "$RELEASE_ARTIFACTS/cyrus-ai-\${REQUESTED_VERSION}.tgz"`,
+			`npm install --global "$RELEASE_ARTIFACTS/kittu-ai-\${REQUESTED_VERSION}.tgz"`,
 		);
 		expect(workflow).toContain(
-			'ACTUAL_VERSION="$(CYRUS_SENTRY_DISABLED=1 cyrus --version)"',
+			'ACTUAL_VERSION="$(KITTU_SENTRY_DISABLED=1 kittu --version)"',
 		);
 		expect(workflow).toContain("run: node scripts/publish-release.mjs");
 	});
@@ -169,7 +169,7 @@ describe("trusted Cyrus release workflow", () => {
 
 	it("documents the npm trust identity and complete release lifecycle", () => {
 		expect(releaseGuide).toContain("`cyrusagents`");
-		expect(releaseGuide).toContain("`cyrus`");
+		expect(releaseGuide).toContain("`kittu`");
 		expect(releaseGuide).toContain("`release-cli.yml`");
 		expect(releaseGuide).toContain("`npm publish`");
 		expect(releaseGuide).toContain("gh workflow run release-cli.yml");

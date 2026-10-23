@@ -1,4 +1,4 @@
-import type { CyrusAgentSession, ILogger, RepositoryConfig } from "cyrus-core";
+import type { ILogger, KittuAgentSession, RepositoryConfig } from "kittu-core";
 import { describe, expect, it } from "vitest";
 import {
 	type IChatToolResolver,
@@ -36,7 +36,7 @@ function build(opts: {
 			issueId: "issue-1",
 			issue: { identifier: "ABC-1" },
 			workspace: { path: "/wt/ABC-1", isGitWorktree: true },
-		} as unknown as CyrusAgentSession,
+		} as unknown as KittuAgentSession,
 		repository: {
 			id: "repo-a",
 			name: "Repo A",
@@ -47,14 +47,14 @@ function build(opts: {
 		systemPrompt: "test",
 		allowedTools: ["Read(**)"],
 		allowedDirectories: [
-			"/home/me/.cyrus/ABC-1/attachments",
+			"/home/me/.kittu/ABC-1/attachments",
 			"/repos/repo-a",
 			"/repos/repo-a/.git",
 			"/repos/repo-a/.git/worktrees/ABC-1",
 		],
 		gitMetadataDirectories: opts.gitMetadataDirectories,
 		disallowedTools: [],
-		cyrusHome: "/home/me/.cyrus",
+		kittuHome: "/home/me/.kittu",
 		linearWorkspaceId: "ws-1",
 		logger: silentLogger,
 		onMessage: () => {},
@@ -75,7 +75,7 @@ describe("RunnerConfigBuilder sandbox git metadata", () => {
 
 		expect(config.sandbox.filesystem).toEqual({
 			// worktree + attachments dir only: no repo path, no git metadata dirs
-			allowRead: [".", "/home/me/.cyrus/ABC-1/attachments"],
+			allowRead: [".", "/home/me/.kittu/ABC-1/attachments"],
 			denyRead: ["~/"],
 			allowWrite: ["/wt/ABC-1", "/repos/repo-a/.git"],
 		});
@@ -87,7 +87,7 @@ describe("RunnerConfigBuilder sandbox git metadata", () => {
 			gitMetadataDirectories: ["/repos/repo-a/.git"],
 		});
 		expect(config.allowedDirectories).toEqual([
-			"/home/me/.cyrus/ABC-1/attachments",
+			"/home/me/.kittu/ABC-1/attachments",
 			"/repos/repo-a",
 			"/repos/repo-a/.git",
 			"/repos/repo-a/.git/worktrees/ABC-1",
@@ -102,7 +102,7 @@ describe("RunnerConfigBuilder sandbox git metadata", () => {
 		});
 		expect(config.sandbox.filesystem.allowRead).toEqual([
 			".",
-			"/home/me/.cyrus/ABC-1/attachments",
+			"/home/me/.kittu/ABC-1/attachments",
 			"/home/me/.supabase",
 		]);
 		expect(config.sandbox.filesystem.allowWrite).toEqual([

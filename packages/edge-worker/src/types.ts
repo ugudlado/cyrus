@@ -1,5 +1,5 @@
-import type { SDKMessage } from "cyrus-claude-runner";
-import type { CyrusAgentSession, Issue, Workspace } from "cyrus-core";
+import type { SDKMessage } from "kittu-claude-runner";
+import type { Issue, KittuAgentSession, Workspace } from "kittu-core";
 
 /**
  * Events emitted by EdgeWorker
@@ -47,7 +47,7 @@ export interface EdgeWorkerEvents {
  * Data returned from createAgentSession
  */
 export interface AgentSessionData {
-	session: CyrusAgentSession;
+	session: KittuAgentSession;
 	fullIssue: Issue;
 	workspace: Workspace;
 	attachmentResult: { manifest: string; attachmentsDir: string | null };

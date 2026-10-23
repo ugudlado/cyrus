@@ -2,7 +2,7 @@ import { exec } from "node:child_process";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
-import { GitHubTokenStore, getDefaultReposDir } from "cyrus-core";
+import { GitHubTokenStore, getDefaultReposDir } from "kittu-core";
 import type {
 	ApiResponse,
 	DeleteRepositoryPayload,
@@ -37,13 +37,13 @@ function getRepoNameFromUrl(repoUrl: string): string {
 
 /**
  * Handle repository cloning or verification
- * - Clones repositories to ~/.cyrus/repos/<repo-name> using GitHub CLI (gh)
+ * - Clones repositories to ~/.kittu/repos/<repo-name> using GitHub CLI (gh)
  * - If repository exists, verify it's a git repo and do nothing
- * - If repository doesn't exist, clone it to ~/.cyrus/repos/<repo-name>
+ * - If repository doesn't exist, clone it to ~/.kittu/repos/<repo-name>
  */
 export async function handleRepository(
 	payload: RepositoryPayload,
-	cyrusHome: string,
+	kittuHome: string,
 ): Promise<ApiResponse> {
 	try {
 		// Validate payload
@@ -60,8 +60,8 @@ export async function handleRepository(
 		const repoName =
 			payload.repository_name || getRepoNameFromUrl(payload.repository_url);
 
-		// Construct path within repos directory (defaults to ~/.cyrus/repos, overridable via CYRUS_REPOS_DIR)
-		const reposDir = getDefaultReposDir(cyrusHome);
+		// Construct path within repos directory (defaults to ~/.kittu/repos, overridable via KITTU_REPOS_DIR)
+		const reposDir = getDefaultReposDir(kittuHome);
 		const repoPath = join(reposDir, repoName);
 
 		// Ensure repos directory exists
@@ -101,12 +101,12 @@ export async function handleRepository(
 
 		// Clone the repository. When cyrus-hosted has pushed per-installation
 		// GitHub tokens (cloud runtime), use plain `git clone` so auth flows
-		// through the Cyrus git credential helper, which resolves the token
+		// through the Kittu git credential helper, which resolves the token
 		// for the repo's OWN org — `gh repo clone` would authenticate with
 		// gh's stored login (the first org's token) and fail for repos added
 		// from a different org. Without pushed tokens (self-host), fall back
 		// to `gh repo clone` using the user's own gh authentication.
-		const tokenStore = new GitHubTokenStore(cyrusHome);
+		const tokenStore = new GitHubTokenStore(kittuHome);
 		const usePushedTokens = Boolean(
 			tokenStore.getTokenForRepoUrl(payload.repository_url) ??
 				tokenStore.getFallbackToken(),
@@ -159,12 +159,12 @@ export async function handleRepository(
 
 /**
  * Handle repository deletion
- * - Removes repository directory from ~/.cyrus/repos/<repo-name>
- * - Removes worktrees from ~/.cyrus/workspaces/<linear-team-key>/<repo-name>
+ * - Removes repository directory from ~/.kittu/repos/<repo-name>
+ * - Removes worktrees from ~/.kittu/workspaces/<linear-team-key>/<repo-name>
  */
 export async function handleRepositoryDelete(
 	payload: DeleteRepositoryPayload,
-	cyrusHome: string,
+	kittuHome: string,
 ): Promise<ApiResponse> {
 	try {
 		// Validate payload
@@ -181,7 +181,7 @@ export async function handleRepositoryDelete(
 		}
 
 		const repoName = payload.repository_name;
-		const reposDir = getDefaultReposDir(cyrusHome);
+		const reposDir = getDefaultReposDir(kittuHome);
 		const repoPath = join(reposDir, repoName);
 
 		// Check if repository exists
@@ -210,7 +210,7 @@ export async function handleRepositoryDelete(
 		// Remove worktrees if linear_team_key is provided
 		const deletedWorktrees: string[] = [];
 		if (payload.linear_team_key) {
-			const workspacesDir = join(cyrusHome, "workspaces");
+			const workspacesDir = join(kittuHome, "workspaces");
 			const teamWorkspaceDir = join(workspacesDir, payload.linear_team_key);
 			const teamRepoWorkspaceDir = join(teamWorkspaceDir, repoName);
 

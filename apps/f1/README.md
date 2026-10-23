@@ -1,6 +1,6 @@
-# F1 Testing Framework for Cyrus
+# F1 Testing Framework for Kittu
 
-A complete end-to-end testing framework for the Cyrus agent system. F1 provides both a server (EdgeWorker in CLI mode) and a beautiful command-line interface for managing issues, sessions, and agent activities without external dependencies.
+A complete end-to-end testing framework for the Kittu agent system. F1 provides both a server (EdgeWorker in CLI mode) and a beautiful command-line interface for managing issues, sessions, and agent activities without external dependencies.
 
 ## Features
 
@@ -34,7 +34,7 @@ cd apps/f1
 pnpm run server
 
 # Or with custom configuration
-CYRUS_PORT=3600 CYRUS_REPO_PATH=/path/to/your/repo pnpm run server
+KITTU_PORT=3600 KITTU_REPO_PATH=/path/to/your/repo pnpm run server
 
 # Development mode with auto-reload
 pnpm run server:dev
@@ -43,14 +43,14 @@ pnpm run server:dev
 **Server Features:**
 - 🏎️ **Fast startup** using Bun runtime
 - 🎨 **Beautiful connection info** with ANSI colors
-- 🔧 **Environment-based config** (CYRUS_PORT, CYRUS_REPO_PATH)
+- 🔧 **Environment-based config** (KITTU_PORT, KITTU_REPO_PATH)
 - 🛑 **Graceful shutdown** on SIGINT/SIGTERM
 - 📁 **Automatic directory setup** for worktrees and state
 - 🚫 **No external dependencies** (no Cloudflare tunnel, no Linear API)
 
 **Environment Variables:**
-- `CYRUS_PORT` - Server port (default: 3600)
-- `CYRUS_REPO_PATH` - Path to repository to test (default: current directory)
+- `KITTU_PORT` - Server port (default: 3600)
+- `KITTU_REPO_PATH` - Path to repository to test (default: current directory)
 
 Once started, the server displays:
 ```
@@ -62,7 +62,7 @@ Once started, the server displays:
   Server:    http://localhost:3600
   RPC:       http://localhost:3600/cli/rpc
   Platform:  cli
-  Cyrus Home: /tmp/cyrus-f1-1234567890
+  Kittu Home: /tmp/kittu-f1-1234567890
   Repository: /path/to/your/repo
 
   Press Ctrl+C to stop the server
@@ -155,7 +155,7 @@ F1 Server (server.ts)
 The CLI connects to the F1 server via JSON-RPC over HTTP:
 
 ```
-http://localhost:${CYRUS_PORT}/cli/rpc
+http://localhost:${KITTU_PORT}/cli/rpc
 ```
 
 The RPC endpoint URL is displayed at the start of every command for easy debugging.
@@ -164,7 +164,7 @@ The RPC endpoint URL is displayed at the start of every command for easy debuggi
 - Platform: `"cli"` (disables Cloudflare tunnel, uses in-memory issue tracker)
 - Default model: Sonnet
 - Fallback model: Haiku
-- Temporary directories: `/tmp/cyrus-f1-*`
+- Temporary directories: `/tmp/kittu-f1-*`
 
 ## Development
 
@@ -287,4 +287,4 @@ cd apps/f1
 
 ## License
 
-Part of the Cyrus project.
+Part of the Kittu project.

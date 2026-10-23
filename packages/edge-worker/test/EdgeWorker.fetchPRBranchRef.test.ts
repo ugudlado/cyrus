@@ -1,22 +1,22 @@
 import { LinearClient } from "@linear/sdk";
-import { ClaudeRunner } from "cyrus-claude-runner";
-import type { GitHubWebhookEvent } from "cyrus-github-event-transport";
-import { issueCommentPayload } from "cyrus-github-event-transport/test/fixtures";
-import { LinearEventTransport } from "cyrus-linear-event-transport";
+import { ClaudeRunner } from "kittu-claude-runner";
+import type { GitHubWebhookEvent } from "kittu-github-event-transport";
+import { issueCommentPayload } from "kittu-github-event-transport/test/fixtures";
+import { LinearEventTransport } from "kittu-linear-event-transport";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSessionManager } from "../src/AgentSessionManager.js";
 import { EdgeWorker } from "../src/EdgeWorker.js";
 import { SharedApplicationServer } from "../src/SharedApplicationServer.js";
 import type { EdgeWorkerConfig, RepositoryConfig } from "../src/types.js";
-import { TEST_CYRUS_HOME } from "./test-dirs.js";
+import { TEST_KITTU_HOME } from "./test-dirs.js";
 
 // Mock dependencies
-vi.mock("cyrus-claude-runner");
-vi.mock("cyrus-linear-event-transport");
+vi.mock("kittu-claude-runner");
+vi.mock("kittu-linear-event-transport");
 vi.mock("@linear/sdk");
 vi.mock("../src/SharedApplicationServer.js");
 vi.mock("../src/AgentSessionManager.js");
-vi.mock("cyrus-core", async (importOriginal) => {
+vi.mock("kittu-core", async (importOriginal) => {
 	const actual = (await importOriginal()) as any;
 	return {
 		...actual,
@@ -105,7 +105,7 @@ describe("EdgeWorker - fetchPRBranchRefs", () => {
 
 		// Create EdgeWorker config
 		mockConfig = {
-			cyrusHome: TEST_CYRUS_HOME,
+			kittuHome: TEST_KITTU_HOME,
 			repositories: [],
 		};
 

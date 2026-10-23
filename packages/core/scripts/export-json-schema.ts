@@ -2,7 +2,7 @@
 /**
  * Export Zod schemas to JSON Schema files.
  *
- * Pipeline:  Zod (cyrus-core) → JSON Schema → Go structs (cyrus-update-server)
+ * Pipeline:  Zod (kittu-core) → JSON Schema → Go structs (kittu-update-server)
  *
  * Run:  npx tsx scripts/export-json-schema.ts
  * Or:   pnpm generate:json-schema

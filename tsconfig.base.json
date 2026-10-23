@@ -20,19 +20,19 @@
 		"noFallthroughCasesInSwitch": true,
 		"noUncheckedIndexedAccess": true,
 		"paths": {
-			"cyrus-core": ["./packages/core"],
-			"cyrus-claude-parser": ["./packages/claude-parser"],
-			"cyrus-linear-client": ["./packages/linear-client"],
-			"cyrus-history-stream": ["./packages/history-stream"],
-			"cyrus-edge-worker": ["./packages/edge-worker"],
-			"cyrus-claude-runner": ["./packages/claude-runner"],
-			"cyrus-codex-runner": ["./packages/codex-runner"],
-			"cyrus-cursor-runner": ["./packages/cursor-runner"],
-			"cyrus-gemini-runner": ["./packages/gemini-runner"],
-			"cyrus-mcp-tools": ["./packages/mcp-tools"],
-			"cyrus-simple-agent-runner": ["./packages/simple-agent-runner"],
-			"cyrus-config-updater": ["./packages/config-updater"],
-			"cyrus-linear-event-transport": ["./packages/linear-event-transport"]
+			"kittu-core": ["./packages/core"],
+			"kittu-claude-parser": ["./packages/claude-parser"],
+			"kittu-linear-client": ["./packages/linear-client"],
+			"kittu-history-stream": ["./packages/history-stream"],
+			"kittu-edge-worker": ["./packages/edge-worker"],
+			"kittu-claude-runner": ["./packages/claude-runner"],
+			"kittu-codex-runner": ["./packages/codex-runner"],
+			"kittu-cursor-runner": ["./packages/cursor-runner"],
+			"kittu-gemini-runner": ["./packages/gemini-runner"],
+			"kittu-mcp-tools": ["./packages/mcp-tools"],
+			"kittu-simple-agent-runner": ["./packages/simple-agent-runner"],
+			"kittu-config-updater": ["./packages/config-updater"],
+			"kittu-linear-event-transport": ["./packages/linear-event-transport"]
 		}
 	},
 	"exclude": ["node_modules", "dist", "build"]

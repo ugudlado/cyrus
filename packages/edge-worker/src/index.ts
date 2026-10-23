@@ -1,6 +1,6 @@
 // Re-export useful types from dependencies
-export type { SDKMessage } from "cyrus-claude-runner";
-export { getAllTools, readOnlyTools } from "cyrus-claude-runner";
+export type { SDKMessage } from "kittu-claude-runner";
+export { getAllTools, readOnlyTools } from "kittu-claude-runner";
 export type {
 	EdgeConfig,
 	EdgeWorkerConfig,
@@ -9,7 +9,7 @@ export type {
 	UserAccessControlConfig,
 	UserIdentifier,
 	Workspace,
-} from "cyrus-core";
+} from "kittu-core";
 export { AgentSessionManager } from "./AgentSessionManager.js";
 export type {
 	AskUserQuestionHandlerConfig,
