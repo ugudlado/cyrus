@@ -451,7 +451,7 @@ describe("EdgeWorker tenants", () => {
 				const { worker } = workerFor();
 				const migrate = vi
 					.spyOn((worker as any).gitService, "migrateLegacyWorktrees")
-					.mockReturnValue({ moved: [], dirty: [], invalid: [] });
+					.mockReturnValue({ moved: [], dirty: [], invalid: [], inUse: [] });
 				vi.spyOn((worker as any).gitService, "sweepWorkspaces").mockReturnValue(
 					[],
 				);

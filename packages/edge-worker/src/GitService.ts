@@ -1325,11 +1325,17 @@ export class GitService {
 		repositories: RepositoryConfig[];
 		isInUse?: (path: string) => boolean;
 		discard?: boolean;
-	}): { moved: string[]; dirty: string[]; invalid: string[] } {
+	}): {
+		moved: string[];
+		dirty: string[];
+		invalid: string[];
+		inUse: string[];
+	} {
 		const result = {
 			moved: [] as string[],
 			dirty: [] as string[],
 			invalid: [] as string[],
+			inUse: [] as string[],
 		};
 		const repoRoots = new Map<string, RepositoryConfig>();
 		for (const repo of opts.repositories) {
@@ -1398,7 +1404,10 @@ export class GitService {
 					(d) => this.classifyWorkspaceDir(d) === "legacy-worktree",
 				);
 				if (members.length === 0) continue;
-				if (opts.isInUse?.(top)) continue;
+				if (opts.isInUse?.(top)) {
+					result.inUse.push(basename(top));
+					continue;
+				}
 				verified = [];
 				const verdicts = members.map(check);
 				const topName = basename(top);

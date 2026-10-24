@@ -737,7 +737,12 @@ describe("sweep and legacy worktree cutover", () => {
 				baseDirs: [base],
 				repositories: [repo],
 			});
-			expect(dirty).toEqual({ moved: [], dirty: ["ENG-1"], invalid: [] });
+			expect(dirty).toEqual({
+				moved: [],
+				dirty: ["ENG-1"],
+				invalid: [],
+				inUse: [],
+			});
 			expect(existsSync(f.ws)).toBe(true);
 			const discarded = svc.migrateLegacyWorktrees({
 				baseDirs: [base],
@@ -765,7 +770,12 @@ describe("sweep and legacy worktree cutover", () => {
 				],
 				isInUse: (p) => p.endsWith("ENG-1"),
 			});
-			expect(res).toEqual({ moved: [], dirty: [], invalid: [] });
+			expect(res).toEqual({
+				moved: [],
+				dirty: [],
+				invalid: [],
+				inUse: ["ENG-1"],
+			});
 			expect(existsSync(f.ws)).toBe(true);
 		} finally {
 			f.cleanup();
@@ -782,7 +792,12 @@ describe("sweep and legacy worktree cutover", () => {
 					{ id: "repo-1", name: "r", repositoryPath: f.repo } as never,
 				],
 			});
-			expect(res).toEqual({ moved: ["ENG-1"], dirty: [], invalid: [] });
+			expect(res).toEqual({
+				moved: ["ENG-1"],
+				dirty: [],
+				invalid: [],
+				inUse: [],
+			});
 			// the retired worktree's admin dir is gone (validated name, no git prune)
 			expect(existsSync(join(f.repo, ".git", "worktrees", "ENG-1"))).toBe(
 				false,
@@ -819,7 +834,12 @@ describe("sweep and legacy worktree cutover", () => {
 					{ id: "repo-1", name: "r", repositoryPath: f.repo } as never,
 				],
 			});
-			expect(res).toEqual({ moved: ["ENG-1"], dirty: [], invalid: ["ENG-1"] });
+			expect(res).toEqual({
+				moved: ["ENG-1"],
+				dirty: [],
+				invalid: ["ENG-1"],
+				inUse: [],
+			});
 			expect(spy).not.toHaveBeenCalled();
 			expect(readdirSync(markers)).toEqual([]);
 		} finally {

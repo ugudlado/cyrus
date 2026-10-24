@@ -6691,9 +6691,14 @@ ${taskSection}`;
 				isInUse: (path) => this.isWorkspaceInUse(path),
 				discard: process.env.CYRUS_DISCARD_OLD_WORKTREES === "1",
 			});
-			if (result.moved.length + result.dirty.length + result.invalid.length) {
+			if (
+				result.moved.length +
+				result.dirty.length +
+				result.invalid.length +
+				result.inUse.length
+			) {
 				this.logger.info(
-					`Legacy worktree cutover: set aside ${result.moved.length} (${result.invalid.length} with unverifiable pointers, moved unexamined); ${result.dirty.length} with uncommitted changes left in place (set CYRUS_DISCARD_OLD_WORKTREES=1 to set them aside too): ${result.dirty.join(", ")}`,
+					`Legacy worktree cutover: set aside ${result.moved.length} (${result.invalid.length} with unverifiable pointers, moved unexamined); ${result.inUse.length} kept for a live or parked session until its next prompt${result.inUse.length ? ` (${result.inUse.join(", ")})` : ""}; ${result.dirty.length} with uncommitted changes left in place (set CYRUS_DISCARD_OLD_WORKTREES=1 to set them aside too)${result.dirty.length ? `: ${result.dirty.join(", ")}` : ""}`,
 				);
 			}
 		} catch (error) {
