@@ -1,4 +1,4 @@
-import { CLIIssueTrackerService } from "cyrus-core";
+import { CLIIssueTrackerService } from "kittu-core";
 import { describe, expect, it, vi } from "vitest";
 import { EdgeWorker } from "../src/EdgeWorker.js";
 

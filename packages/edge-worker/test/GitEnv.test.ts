@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ILogger } from "cyrus-core";
+import type { ILogger } from "kittu-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GitService } from "../src/GitService.js";
 import {
@@ -36,7 +36,7 @@ const silentLogger: ILogger = {
 describe("GitEnv config pins", () => {
 	let root: string;
 	beforeEach(() => {
-		root = mkdtempSync(join(tmpdir(), "cyrus-gitenv-"));
+		root = mkdtempSync(join(tmpdir(), "kittu-gitenv-"));
 	});
 	afterEach(() => rmSync(root, { recursive: true, force: true }));
 
@@ -52,7 +52,7 @@ describe("GitEnv config pins", () => {
 	it("pins every dangerous key and the env vars, with the credential helper in boat order", () => {
 		const hooks = join(root, "hooks");
 		const ge = new GitEnv({
-			cyrusHome: root,
+			kittuHome: root,
 			hooksDir: hooks,
 			credentialHelper: "/usr/local/libexec/cred",
 		});
@@ -93,7 +93,7 @@ describe("GitEnv config pins", () => {
 	it("leaves credential config alone when no helper is configured, and only adds file:// for tests", () => {
 		const fx = makeSessionFixture();
 		try {
-			const plain = new GitEnv({ cyrusHome: root }).repoScope(fx.repo);
+			const plain = new GitEnv({ kittuHome: root }).repoScope(fx.repo);
 			expect(
 				pairsOf(plain.env).some(([k]) => k.startsWith("credential.")),
 			).toBe(false);
@@ -110,7 +110,7 @@ describe("GitEnv config pins", () => {
 		process.env.GITHUB_TOKEN = "ghs_should_not_leak";
 		process.env.GIT_SSL_CAINFO = "/nope";
 		try {
-			const inv = new GitEnv({ cyrusHome: root }).repoScope(fx.repo);
+			const inv = new GitEnv({ kittuHome: root }).repoScope(fx.repo);
 			expect(JSON.stringify(inv.env)).not.toContain("ghs_should_not_leak");
 			expect(inv.env.GIT_SSL_CAINFO).toBeUndefined();
 		} finally {
@@ -123,7 +123,7 @@ describe("GitEnv config pins", () => {
 	it("creates an empty hooks dir by default and refuses a non-empty one on every use", () => {
 		const fx = makeSessionFixture();
 		try {
-			const ge = new GitEnv({ cyrusHome: root });
+			const ge = new GitEnv({ kittuHome: root });
 			ge.repoScope(fx.repo);
 			const hooks = join(root, "no-hooks");
 			writeFileSync(join(hooks, "pre-commit"), "#!/bin/sh\n");
@@ -136,7 +136,7 @@ describe("GitEnv config pins", () => {
 	it("repo scope pins GIT_DIR/GIT_COMMON_DIR/GIT_WORK_TREE from the configured path", () => {
 		const fx = makeSessionFixture();
 		try {
-			const inv = new GitEnv({ cyrusHome: root }).repoScope(fx.repo);
+			const inv = new GitEnv({ kittuHome: root }).repoScope(fx.repo);
 			expect(inv.env.GIT_DIR).toBe(inv.env.GIT_COMMON_DIR);
 			expect(inv.env.GIT_DIR?.endsWith("/.git")).toBe(true);
 			expect(inv.cwd).toBe(inv.env.GIT_WORK_TREE);
@@ -147,7 +147,7 @@ describe("GitEnv config pins", () => {
 
 	it("throws for a path with no .git directory", () => {
 		expect(() =>
-			new GitEnv({ cyrusHome: root }).repoScope(join(root, "nothing")),
+			new GitEnv({ kittuHome: root }).repoScope(join(root, "nothing")),
 		).toThrow(GitEnvError);
 	});
 });
@@ -202,7 +202,7 @@ describe("GitEnv session scope and admin names", () => {
 	it("GitService makes a standalone clone, not a linked worktree", async () => {
 		const service = new GitService(
 			{
-				cyrusHome: join(fx.root, "home"),
+				kittuHome: join(fx.root, "home"),
 				gitAllowFileProtocol: true,
 				cloneMinFreeBytes: 0,
 			},
@@ -237,7 +237,7 @@ describe("recorded branch name", () => {
 		const fx = makeSessionFixture();
 		try {
 			const service = new GitService(
-				{ cyrusHome: join(fx.root, "home"), cloneMinFreeBytes: 0 },
+				{ kittuHome: join(fx.root, "home"), cloneMinFreeBytes: 0 },
 				silentLogger,
 			);
 			const repo = {
@@ -363,7 +363,7 @@ describe("remote URL trust (insteadOf post-check)", () => {
 		expect(() => fx.gitEnv.trustedRemoteUrl(inv)).toThrow(/insteadOf/);
 
 		const warn = vi.fn();
-		const service = new GitService({ cyrusHome: join(fx.root, "home") }, {
+		const service = new GitService({ kittuHome: join(fx.root, "home") }, {
 			...silentLogger,
 			warn,
 		} as unknown as ILogger);
@@ -395,7 +395,7 @@ describe("remote URL trust (insteadOf post-check)", () => {
 	it("rejects a remote URL that looks like an option", () => {
 		git(fx.repo, "config", "remote.origin.url", "--upload-pack=evil");
 		const service = new GitService({
-			cyrusHome: join(fx.root, "home"),
+			kittuHome: join(fx.root, "home"),
 			cloneMinFreeBytes: 0,
 		});
 		return expect(
@@ -421,9 +421,9 @@ describe("parseGithubSlug", () => {
 
 describe("gh scope", () => {
 	it("uses an explicit token, an empty throwaway config dir and a PATH without the shim", () => {
-		const root = mkdtempSync(join(tmpdir(), "cyrus-gh-scope-"));
+		const root = mkdtempSync(join(tmpdir(), "kittu-gh-scope-"));
 		try {
-			const ge = new GitEnv({ cyrusHome: root, ghBinary: "/usr/bin/gh" });
+			const ge = new GitEnv({ kittuHome: root, ghBinary: "/usr/bin/gh" });
 			process.env.GH_TOKEN = "ambient";
 			const gh = ge.ghScope("explicit-token");
 			expect(gh.binary).toBe("/usr/bin/gh");
@@ -435,10 +435,10 @@ describe("gh scope", () => {
 			expect(gh.env.GH_CONFIG_DIR).toBeTruthy();
 			gh.cleanup();
 			expect(
-				new GitEnv({ cyrusHome: root, ghBinary: "/x" }).ghScope(undefined).env
+				new GitEnv({ kittuHome: root, ghBinary: "/x" }).ghScope(undefined).env
 					.GH_TOKEN,
 			).toBeUndefined();
-			expect(() => new GitEnv({ cyrusHome: root }).ghScope("t")).toThrow(
+			expect(() => new GitEnv({ kittuHome: root }).ghScope("t")).toThrow(
 				/ghBinary/,
 			);
 		} finally {

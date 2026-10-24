@@ -1,13 +1,13 @@
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { OpenCodeRunner } from "cyrus-opencode-runner";
+import { OpenCodeRunner } from "kittu-opencode-runner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSessionManager } from "../src/AgentSessionManager";
 import type { IActivitySink } from "../src/sinks/IActivitySink";
 
 function makeTempDir(): string {
-	return mkdtempSync(join(tmpdir(), "cyrus-opencode-activity-"));
+	return mkdtempSync(join(tmpdir(), "kittu-opencode-activity-"));
 }
 
 function fixtureLines(): string {
@@ -48,7 +48,7 @@ describe("AgentSessionManager - OpenCode activity mapping", () => {
 		postActivitySpy = vi.spyOn(mockActivitySink, "postActivity");
 		manager = new AgentSessionManager();
 
-		manager.createCyrusAgentSession(
+		manager.createKittuAgentSession(
 			sessionId,
 			issueId,
 			{
@@ -59,7 +59,7 @@ describe("AgentSessionManager - OpenCode activity mapping", () => {
 				branchName: "test-branch",
 			},
 			{
-				path: "/tmp/cyrus-opencode-activity",
+				path: "/tmp/kittu-opencode-activity",
 				isGitWorktree: false,
 			},
 		);
@@ -71,7 +71,7 @@ describe("AgentSessionManager - OpenCode activity mapping", () => {
 		const runner = new OpenCodeRunner({
 			openCodePath: writeFakeOpenCode(dir),
 			workingDirectory: dir,
-			cyrusHome: dir,
+			kittuHome: dir,
 			opencodeGlobalConfig: {
 				model: "anthropic/claude-sonnet-4.5",
 			},
@@ -124,10 +124,10 @@ describe("AgentSessionManager - OpenCode activity mapping", () => {
 					"- [x] Explore cyrus-hosted /settings/tools page and current platform selector",
 				) &&
 				call[1]?.body.includes(
-					"- [ ] Add toolsets to cyrus-core EdgeConfig schema + regenerate JSON schemas (in progress)",
+					"- [ ] Add toolsets to kittu-core EdgeConfig schema + regenerate JSON schemas (in progress)",
 				) &&
 				call[1]?.body.includes(
-					"- [ ] Wire toolsets through cyrus ConfigManager and ToolPermissionResolver (pending)",
+					"- [ ] Wire toolsets through kittu ConfigManager and ToolPermissionResolver (pending)",
 				),
 		);
 		expect(todoThought).toBeDefined();
@@ -181,7 +181,7 @@ describe("AgentSessionManager - OpenCode activity mapping", () => {
 		const runner = new OpenCodeRunner({
 			openCodePath: writeFakeOpenCode(dir),
 			workingDirectory: dir,
-			cyrusHome: dir,
+			kittuHome: dir,
 			model: "openai/gpt-5.5",
 		});
 		manager.addAgentRunner(sessionId, runner);

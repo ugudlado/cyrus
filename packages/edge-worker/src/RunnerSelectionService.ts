@@ -1,4 +1,4 @@
-import type { EdgeWorkerConfig, ILogger, RunnerType } from "cyrus-core";
+import type { EdgeWorkerConfig, ILogger, RunnerType } from "kittu-core";
 
 export class RunnerSelectionService {
 	private config: EdgeWorkerConfig;

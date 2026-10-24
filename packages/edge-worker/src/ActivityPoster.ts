@@ -4,7 +4,7 @@ import type {
 	ILogger,
 	RepoSetupHookEvent,
 	RepositoryConfig,
-} from "cyrus-core";
+} from "kittu-core";
 
 export class ActivityPoster {
 	private issueTrackers: Map<string, IIssueTrackerService>;
@@ -249,7 +249,7 @@ export class ActivityPoster {
 			return null;
 		}
 
-		return "The setup script does not run with sudo privileges. Keep `cyrus-setup.sh` to repo-local setup. For hosted Cyrus, add required npm or apt packages in the Cyrus Dashboard at Settings > Packages (`/settings/packages`); for self-hosted Cyrus, preinstall privileged dependencies in the runtime or host.";
+		return "The setup script does not run with sudo privileges. Keep `kittu-setup.sh` to repo-local setup. For hosted Kittu, add required npm or apt packages in the Kittu Dashboard at Settings > Packages (`/settings/packages`); for self-hosted Kittu, preinstall privileged dependencies in the runtime or host.";
 	}
 
 	private looksLikeSudoFailure(output: string): boolean {

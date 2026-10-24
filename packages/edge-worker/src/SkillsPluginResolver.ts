@@ -1,7 +1,7 @@
 import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { SdkPluginConfig } from "cyrus-claude-runner";
-import type { ILogger } from "cyrus-core";
+import type { SdkPluginConfig } from "kittu-claude-runner";
+import type { ILogger } from "kittu-core";
 
 /**
  * Session context used to evaluate per-skill scope restrictions. Each dimension
@@ -24,7 +24,7 @@ export interface SkillSessionContext {
 
 /**
  * Scope persisted alongside a user skill as `scope.json`. Mirrors the optional
- * fields on `UpdateSkillPayload` in `cyrus-config-updater`.
+ * fields on `UpdateSkillPayload` in `kittu-config-updater`.
  */
 interface SkillScope {
 	repositoryIds?: string[];
@@ -36,9 +36,9 @@ interface SkillScope {
  * Resolves skills plugins for agent sessions.
  *
  * Two plugin sources are supported:
- * 1. Internal plugin — default Cyrus workflow skills deployed to ~/.cyrus/cyrus-skills-plugin/
+ * 1. Internal plugin — default Kittu workflow skills deployed to ~/.kittu/kittu-skills-plugin/
  *    (editable by the user)
- * 2. User skills plugin — custom skills managed by the CYHOST UI at ~/.cyrus/user-skills-plugin/
+ * 2. User skills plugin — custom skills managed by the CYHOST UI at ~/.kittu/user-skills-plugin/
  *
  * Both live outside the repository so they are never committed to the user's repo.
  *
@@ -51,11 +51,11 @@ export class SkillsPluginResolver {
 	private readonly userSkillsDir: string;
 
 	constructor(
-		private readonly cyrusHome: string,
+		private readonly kittuHome: string,
 		private readonly logger: ILogger,
 	) {
-		this.internalPluginPath = join(this.cyrusHome, "cyrus-skills-plugin");
-		this.userPluginPath = join(this.cyrusHome, "user-skills-plugin");
+		this.internalPluginPath = join(this.kittuHome, "kittu-skills-plugin");
+		this.userPluginPath = join(this.kittuHome, "user-skills-plugin");
 		this.userSkillsDir = join(this.userPluginPath, "skills");
 	}
 
@@ -64,13 +64,13 @@ export class SkillsPluginResolver {
 	 *
 	 * Called from EdgeWorker startup — idempotent check-and-create so the
 	 * plugin is always ready before the first skill is synced, mirroring the
-	 * pattern used for other Cyrus-managed directories (repos, worktrees,
+	 * pattern used for other Kittu-managed directories (repos, worktrees,
 	 * mcp-configs in `Application.ensureRequiredDirectories()`).
 	 *
 	 * Creates, if missing:
-	 *   ~/.cyrus/user-skills-plugin/
-	 *   ~/.cyrus/user-skills-plugin/skills/
-	 *   ~/.cyrus/user-skills-plugin/.claude-plugin/plugin.json
+	 *   ~/.kittu/user-skills-plugin/
+	 *   ~/.kittu/user-skills-plugin/skills/
+	 *   ~/.kittu/user-skills-plugin/.claude-plugin/plugin.json
 	 *
 	 * The manifest file is what the Claude Agent SDK uses to identify the
 	 * directory as a plugin — without it, even a populated `skills/` tree is
@@ -97,7 +97,7 @@ export class SkillsPluginResolver {
 			JSON.stringify(
 				{
 					name: "user-skills",
-					description: "User-created skills managed by Cyrus",
+					description: "User-created skills managed by Kittu",
 				},
 				null,
 				"\t",

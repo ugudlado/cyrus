@@ -1,11 +1,11 @@
 {
-	"name": "cyrus-ai",
+	"name": "kittu-ai",
 	"version": "0.2.74",
 	"description": "AI-powered Linear issue automation using Claude",
 	"main": "dist/src/app.js",
 	"types": "dist/src/app.d.ts",
 	"bin": {
-		"cyrus": "./dist/src/app.js"
+		"kittu": "./dist/src/app.js"
 	},
 	"type": "module",
 	"scripts": {
@@ -38,17 +38,17 @@
 		"cli"
 	],
 	"author": "",
-	"license": "MIT",
+	"license": "Apache-2.0",
 	"dependencies": {
 		"@linear/sdk": "^64.0.0",
 		"@sentry/node": "^10.65.0",
 		"commander": "^14.0.2",
-		"cyrus-claude-runner": "workspace:*",
-		"cyrus-cloudflare-tunnel-client": "workspace:*",
-		"cyrus-config-updater": "workspace:*",
-		"cyrus-core": "workspace:*",
-		"cyrus-edge-worker": "workspace:*",
-		"cyrus-slack-event-transport": "workspace:*",
+		"kittu-claude-runner": "workspace:*",
+		"kittu-cloudflare-tunnel-client": "workspace:*",
+		"kittu-config-updater": "workspace:*",
+		"kittu-core": "workspace:*",
+		"kittu-edge-worker": "workspace:*",
+		"kittu-slack-event-transport": "workspace:*",
 		"dotenv": "^16.5.0",
 		"express": "^5.2.1",
 		"fastify": "^5.12.5",

@@ -1,17 +1,17 @@
 import type { LinearClient } from "@linear/sdk";
-import type { McpServerConfig } from "cyrus-claude-runner";
-import type { IIssueTrackerService, RepositoryConfig } from "cyrus-core";
+import type { McpServerConfig } from "kittu-claude-runner";
+import type { IIssueTrackerService, RepositoryConfig } from "kittu-core";
 import {
-	type CyrusToolsOptions,
-	createCyrusToolsServer,
-} from "cyrus-mcp-tools";
+	createKittuToolsServer,
+	type KittuToolsOptions,
+} from "kittu-mcp-tools";
 
-type CyrusToolsMcpContextEntry = {
+type KittuToolsMcpContextEntry = {
 	contextId: string;
 	linearToken: string;
 	linearClient: LinearClient;
 	parentSessionId?: string;
-	prebuiltServer?: ReturnType<typeof createCyrusToolsServer>;
+	prebuiltServer?: ReturnType<typeof createKittuToolsServer>;
 	createdAt: number;
 };
 
@@ -25,10 +25,10 @@ export interface McpConfigServiceDeps {
 	getIssueTracker: (
 		workspaceId: string,
 	) => (IIssueTrackerService & { getClient?: () => LinearClient }) | undefined;
-	/** Get the HTTP URL where the cyrus-tools MCP endpoint is registered */
-	getCyrusToolsMcpUrl: () => string;
-	/** Factory that creates CyrusToolsOptions with session callbacks */
-	createCyrusToolsOptions: (parentSessionId?: string) => CyrusToolsOptions;
+	/** Get the HTTP URL where the kittu-tools MCP endpoint is registered */
+	getKittuToolsMcpUrl: () => string;
+	/** Factory that creates KittuToolsOptions with session callbacks */
+	createKittuToolsOptions: (parentSessionId?: string) => KittuToolsOptions;
 	/**
 	 * Tenant mode: the Slack bot token for the repository's tenant (undefined =
 	 * no Slack MCP). When omitted, the process-wide SLACK_BOT_TOKEN is used.
@@ -40,24 +40,24 @@ export interface McpConfigServiceDeps {
  * Single source of truth for MCP server configuration assembly.
  *
  * Handles:
- * - Building inline MCP server configs (Linear, cyrus-tools, Slack)
+ * - Building inline MCP server configs (Linear, kittu-tools, Slack)
  * - Merging file-based MCP config paths from repositories
- * - Cyrus-tools MCP context lifecycle management
+ * - Kittu-tools MCP context lifecycle management
  *
  * Both EdgeWorker (issue sessions) and ChatSessionHandler (chat sessions)
  * consume this service instead of duplicating MCP config logic.
  */
 export class McpConfigService {
 	private deps: McpConfigServiceDeps;
-	private contexts = new Map<string, CyrusToolsMcpContextEntry>();
+	private contexts = new Map<string, KittuToolsMcpContextEntry>();
 
 	constructor(deps: McpConfigServiceDeps) {
 		this.deps = deps;
 	}
 
 	/**
-	 * Build MCP configuration with automatic Linear server injection and cyrus-tools over Fastify MCP.
-	 * Workspace-level servers (Linear, cyrus-tools, Slack) are configured once using workspace-level token.
+	 * Build MCP configuration with automatic Linear server injection and kittu-tools over Fastify MCP.
+	 * Workspace-level servers (Linear, kittu-tools, Slack) are configured once using workspace-level token.
 	 *
 	 * Whether the agent can actually CALL into any of these servers is gated
 	 * by the per-platform allowed-tools array (`teams.{linear,slack,github}_allowed_tools`),
@@ -67,7 +67,7 @@ export class McpConfigService {
 	 *
 	 * @param repoId - Repository ID for MCP context scoping
 	 * @param linearWorkspaceId - Linear workspace ID (from webhook.organizationId or repo config)
-	 * @param parentSessionId - Parent session ID for cyrus-tools context
+	 * @param parentSessionId - Parent session ID for kittu-tools context
 	 */
 	buildMcpConfig(
 		repoId: string,
@@ -80,7 +80,7 @@ export class McpConfigService {
 		const linearToken = this.deps.getLinearTokenForWorkspace(linearWorkspaceId);
 		const issueTracker = this.deps.getIssueTracker(linearWorkspaceId);
 		if (!linearToken || !issueTracker?.getClient) {
-			// CLI platform mode — no Linear client available, return config without cyrus-tools
+			// CLI platform mode — no Linear client available, return config without kittu-tools
 			const mcpConfig: Record<string, McpServerConfig> = {
 				"cyrus-docs": {
 					type: "http",
@@ -90,9 +90,9 @@ export class McpConfigService {
 			return mcpConfig;
 		}
 		const linearClient = issueTracker.getClient();
-		const prebuiltServer = createCyrusToolsServer(
+		const prebuiltServer = createKittuToolsServer(
 			linearClient,
-			this.deps.createCyrusToolsOptions(parentSessionId),
+			this.deps.createKittuToolsOptions(parentSessionId),
 		);
 
 		this.contexts.set(contextId, {
@@ -105,7 +105,7 @@ export class McpConfigService {
 		});
 		this.pruneContexts();
 
-		const cyrusToolsAuthorizationHeader = this.getAuthorizationHeaderValue();
+		const kittuToolsAuthorizationHeader = this.getAuthorizationHeaderValue();
 
 		// Workspace-level MCP servers — configured once regardless of repo count
 		// https://linear.app/docs/mcp
@@ -117,14 +117,14 @@ export class McpConfigService {
 					Authorization: `Bearer ${linearToken}`,
 				},
 			},
-			"cyrus-tools": {
+			"kittu-tools": {
 				type: "http",
-				url: this.deps.getCyrusToolsMcpUrl(),
+				url: this.deps.getKittuToolsMcpUrl(),
 				headers: {
-					"x-cyrus-mcp-context-id": contextId,
-					...(cyrusToolsAuthorizationHeader
+					"x-kittu-mcp-context-id": contextId,
+					...(kittuToolsAuthorizationHeader
 						? {
-								Authorization: cyrusToolsAuthorizationHeader,
+								Authorization: kittuToolsAuthorizationHeader,
 							}
 						: {}),
 				},
@@ -188,10 +188,10 @@ export class McpConfigService {
 	}
 
 	/**
-	 * Look up a stored cyrus-tools MCP context by its ID.
+	 * Look up a stored kittu-tools MCP context by its ID.
 	 * Used by the MCP endpoint handler to retrieve prebuilt servers.
 	 */
-	getContext(contextId: string): CyrusToolsMcpContextEntry | undefined {
+	getContext(contextId: string): KittuToolsMcpContextEntry | undefined {
 		return this.contexts.get(contextId);
 	}
 
@@ -213,10 +213,10 @@ export class McpConfigService {
 	}
 
 	/**
-	 * Get the authorization header value for cyrus-tools MCP requests.
+	 * Get the authorization header value for kittu-tools MCP requests.
 	 */
 	getAuthorizationHeaderValue(): string | undefined {
-		const apiKey = process.env.CYRUS_API_KEY?.trim();
+		const apiKey = process.env.KITTU_API_KEY?.trim();
 		if (!apiKey) {
 			return undefined;
 		}

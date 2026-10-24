@@ -35,8 +35,8 @@ async function main() {
 		// Working directory for Claude to operate in
 		workingDirectory: "/Users/agentops/code/hello-world-project",
 
-		// Cyrus home directory for logs and state
-		cyrusHome: "/tmp/simple-test-cyrus-home",
+		// Kittu home directory for logs and state
+		kittuHome: "/tmp/simple-test-kittu-home",
 
 		// Use tools matching hello-world config
 		allowedTools: [

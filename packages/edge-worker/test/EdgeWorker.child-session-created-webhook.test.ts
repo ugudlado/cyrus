@@ -1,19 +1,19 @@
 import { LinearClient } from "@linear/sdk";
-import type { LinearAgentSessionCreatedWebhook } from "cyrus-core";
-import { LinearEventTransport } from "cyrus-linear-event-transport";
+import type { LinearAgentSessionCreatedWebhook } from "kittu-core";
+import { LinearEventTransport } from "kittu-linear-event-transport";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSessionManager } from "../src/AgentSessionManager.js";
 import { EdgeWorker } from "../src/EdgeWorker.js";
 import { SharedApplicationServer } from "../src/SharedApplicationServer.js";
 import type { EdgeWorkerConfig, RepositoryConfig } from "../src/types.js";
-import { TEST_CYRUS_HOME } from "./test-dirs.js";
+import { TEST_KITTU_HOME } from "./test-dirs.js";
 
 vi.mock("fs/promises");
 vi.mock("@linear/sdk");
-vi.mock("cyrus-linear-event-transport");
+vi.mock("kittu-linear-event-transport");
 vi.mock("../src/AgentSessionManager.js");
 vi.mock("../src/SharedApplicationServer.js");
-vi.mock("cyrus-core", async (importOriginal) => {
+vi.mock("kittu-core", async (importOriginal) => {
 	const actual = (await importOriginal()) as any;
 	return {
 		...actual,
@@ -47,7 +47,7 @@ describe("EdgeWorker - child AgentSessionEvent.created webhooks", () => {
 		vi.spyOn(console, "error").mockImplementation(() => {});
 
 		mockAgentSessionManager = {
-			createCyrusAgentSession: vi.fn(),
+			createKittuAgentSession: vi.fn(),
 			getSessionsByIssueId: vi.fn().mockReturnValue([]),
 			serializeState: vi.fn().mockReturnValue({ sessions: {}, entries: {} }),
 			restoreState: vi.fn(),
@@ -85,7 +85,7 @@ describe("EdgeWorker - child AgentSessionEvent.created webhooks", () => {
 
 		const mockConfig: EdgeWorkerConfig = {
 			proxyUrl: "http://localhost:3000",
-			cyrusHome: TEST_CYRUS_HOME,
+			kittuHome: TEST_KITTU_HOME,
 			repositories: [mockRepository],
 			linearWorkspaces: {
 				"test-workspace": { linearToken: "test-token" },
@@ -298,7 +298,7 @@ describe("EdgeWorker - child AgentSessionEvent.created webhooks", () => {
 			expect(initializeSpy).toHaveBeenCalledOnce();
 		});
 
-		it("does not link when the parent issue has no Cyrus session", async () => {
+		it("does not link when the parent issue has no Kittu session", async () => {
 			vi.spyOn(edgeWorker, "fetchFullIssueDetails").mockResolvedValue({
 				id: childIssueId,
 				identifier: "TEST-124",

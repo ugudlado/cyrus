@@ -41,7 +41,7 @@ async function main() {
 
 		const runner = new SimpleGeminiRunner({
 			validResponses: ["yes", "no", "maybe"],
-			cyrusHome: path.join(os.homedir(), ".cyrus"),
+			kittuHome: path.join(os.homedir(), ".kittu"),
 			workingDirectory: process.cwd(),
 			model: "gemini-2.5-flash",
 			maxTurns: 5,

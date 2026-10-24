@@ -1,15 +1,15 @@
 /**
- * Default Cyrus app base URL
- * Can be overridden via CYRUS_APP_URL environment variable for preview environments
+ * Default Kittu app base URL
+ * Can be overridden via KITTU_APP_URL environment variable for preview environments
  */
-export const DEFAULT_CYRUS_APP_URL = "https://app.atcyrus.com";
+export const DEFAULT_KITTU_APP_URL = "https://app.atcyrus.com";
 
 /**
- * Get the Cyrus app base URL from environment variable or use default
- * @returns The Cyrus app base URL (e.g., "https://app.atcyrus.com")
+ * Get the Kittu app base URL from environment variable or use default
+ * @returns The Kittu app base URL (e.g., "https://app.atcyrus.com")
  */
-export function getCyrusAppUrl(): string {
-	return process.env.CYRUS_APP_URL || DEFAULT_CYRUS_APP_URL;
+export function getKittuAppUrl(): string {
+	return process.env.KITTU_APP_URL || DEFAULT_KITTU_APP_URL;
 }
 
 /**
@@ -33,10 +33,10 @@ export interface ConfigApiResponse {
 // biome-ignore lint/complexity/noStaticOnlyClass: Static utility client keeps existing callsites stable.
 export class ConfigApiClient {
 	/**
-	 * Get the config API URL, respecting CYRUS_APP_URL environment variable
+	 * Get the config API URL, respecting KITTU_APP_URL environment variable
 	 */
 	private static getConfigApiUrl(): string {
-		return `${getCyrusAppUrl()}/api/config`;
+		return `${getKittuAppUrl()}/api/config`;
 	}
 
 	/**
@@ -61,7 +61,7 @@ export class ConfigApiClient {
 			// Call config API with auth key
 			const url = `${ConfigApiClient.getConfigApiUrl()}?auth_key=${encodeURIComponent(authKey)}`;
 			const response = await fetch(url, {
-				headers: { "X-Cyrus-Config-Capabilities": "self-host-port-v1" },
+				headers: { "X-Kittu-Config-Capabilities": "self-host-port-v1" },
 			});
 
 			if (!response.ok) {

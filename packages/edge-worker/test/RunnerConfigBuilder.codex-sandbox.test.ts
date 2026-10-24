@@ -1,4 +1,4 @@
-import type { CyrusAgentSession, ILogger, RepositoryConfig } from "cyrus-core";
+import type { ILogger, KittuAgentSession, RepositoryConfig } from "kittu-core";
 import { describe, expect, it } from "vitest";
 import {
 	type IChatToolResolver,
@@ -34,12 +34,12 @@ function makeCodexBuilder(): RunnerConfigBuilder {
 	);
 }
 
-function makeSession(): CyrusAgentSession {
+function makeSession(): KittuAgentSession {
 	return {
 		issueId: "issue-1",
 		issue: { identifier: "ABC-1" },
 		workspace: { path: "/ws/root", isGitWorktree: true },
-	} as unknown as CyrusAgentSession;
+	} as unknown as KittuAgentSession;
 }
 
 function buildCodexConfig(sandboxSettings?: Record<string, unknown>) {
@@ -56,7 +56,7 @@ function buildCodexConfig(sandboxSettings?: Record<string, unknown>) {
 		allowedTools: ["Read(**)"],
 		allowedDirectories: ["/ws/root", "/repos/repo-a"],
 		disallowedTools: [],
-		cyrusHome: "/tmp/cyrus-home",
+		kittuHome: "/tmp/kittu-home",
 		linearWorkspaceId: "ws-1",
 		logger: silentLogger,
 		onMessage: () => {},

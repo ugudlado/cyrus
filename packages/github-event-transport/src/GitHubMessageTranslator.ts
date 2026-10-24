@@ -17,7 +17,7 @@ import type {
 	TranslationContext,
 	TranslationResult,
 	UserPromptMessage,
-} from "cyrus-core";
+} from "kittu-core";
 import type {
 	GitHubIssueCommentPayload,
 	GitHubPullRequestReviewCommentPayload,

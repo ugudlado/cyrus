@@ -31,15 +31,15 @@ export const UserIdentifierSchema = z.union([
 export const UserAccessControlConfigSchema = z.object({
 	/**
 	 * Users allowed to delegate issues.
-	 * If specified, ONLY these users can trigger Cyrus sessions.
-	 * Empty array means no one is allowed (effectively disables Cyrus).
+	 * If specified, ONLY these users can trigger Kittu sessions.
+	 * Empty array means no one is allowed (effectively disables Kittu).
 	 * Omitting this field means everyone is allowed (unless blocked).
 	 */
 	allowedUsers: z.array(UserIdentifierSchema).optional(),
 
 	/**
 	 * Users blocked from delegating issues.
-	 * These users cannot trigger Cyrus sessions.
+	 * These users cannot trigger Kittu sessions.
 	 * Takes precedence over allowedUsers.
 	 */
 	blockedUsers: z.array(UserIdentifierSchema).optional(),
@@ -287,7 +287,7 @@ export const SandboxConfigSchema = z.object({
 	 * `enabled`; Claude applies them when `enabled` is true (OS sandbox
 	 * allowRead/allowWrite plus matching Read/Edit/Write tool permissions).
 	 * `~/` is expanded; non-absolute entries are ignored. Merged
-	 * with the `CYRUS_SANDBOX_WRITABLE_PATHS` env var (comma- or
+	 * with the `KITTU_SANDBOX_WRITABLE_PATHS` env var (comma- or
 	 * path-delimiter-separated).
 	 */
 	writablePaths: z.array(z.string()).optional(),
@@ -414,7 +414,7 @@ export const RepositoryConfigSchema = z.object({
 });
 
 /**
- * Edge configuration - the serializable configuration stored in ~/.cyrus/config.json
+ * Edge configuration - the serializable configuration stored in ~/.kittu/config.json
  *
  * This schema defines all settings that can be persisted to disk.
  * It contains global settings that apply across all repositories,
@@ -436,7 +436,7 @@ export const EdgeConfigSchema = z.object({
 	linearWorkspaceSlug: z.string().optional(),
 
 	/**
-	 * Tenants sharing this Cyrus instance. Absent = single implicit tenant
+	 * Tenants sharing this Kittu instance. Absent = single implicit tenant
 	 * using the global env vars (LINEAR_WEBHOOK_SECRET, SLACK_BOT_TOKEN, ...).
 	 * Startup-only: changes need a restart.
 	 */
@@ -529,7 +529,7 @@ export const EdgeConfigSchema = z.object({
 	/**
 	 * Allowed tools for Slack @mention chat sessions. When set, overrides the
 	 * built-in read-only chat tool set used by ToolPermissionResolver. The
-	 * workspace MCP tool prefixes (mcp__linear, mcp__cyrus-tools, etc.) are
+	 * workspace MCP tool prefixes (mcp__linear, mcp__kittu-tools, etc.) are
 	 * still appended automatically.
 	 */
 	slackAllowedTools: z.array(z.string()).optional(),
@@ -548,7 +548,7 @@ export const EdgeConfigSchema = z.object({
 	 * `repository.mcpConfigPath` is not consulted here — only this list
 	 * determines which custom `.mcp.json` files load for Slack. When
 	 * omitted/empty, no custom files load (native MCP servers — Linear,
-	 * Cyrus tools, Slack MCP, Cyrus docs — still run as usual).
+	 * Kittu tools, Slack MCP, Kittu docs — still run as usual).
 	 *
 	 * The per-platform lists let cyrus-hosted route custom MCP server
 	 * availability per surface — e.g. expose `slack-mcp-server` only on
@@ -591,7 +591,7 @@ export const EdgeConfigSchema = z.object({
 	githubMcpConfigs: z.array(z.string()).optional(),
 
 	/**
-	 * Restrict Claude sessions to MCP servers explicitly supplied by Cyrus.
+	 * Restrict Claude sessions to MCP servers explicitly supplied by Kittu.
 	 * When false, Claude Code may also load servers from project/user settings,
 	 * plugins, and authenticated claude.ai connectors. Defaults to true when
 	 * omitted.
@@ -619,11 +619,11 @@ export const EdgeConfigSchema = z.object({
 	maxConcurrentSessions: z.number().int().positive().optional(),
 
 	/**
-	 * Whether Cyrus follows along with all subsequent replies in a Slack thread
+	 * Whether Kittu follows along with all subsequent replies in a Slack thread
 	 * it has been @mentioned in (treating each reply as a follow-up prompt).
-	 * When false, Cyrus only responds to explicit @mentions. Defaults to true if
+	 * When false, Kittu only responds to explicit @mentions. Defaults to true if
 	 * not specified. Can also be force-disabled at runtime via the
-	 * `CYRUS_SLACK_THREAD_FOLLOWING_DISABLED` environment variable.
+	 * `KITTU_SLACK_THREAD_FOLLOWING_DISABLED` environment variable.
 	 */
 	slackThreadFollowing: z.boolean().optional(),
 

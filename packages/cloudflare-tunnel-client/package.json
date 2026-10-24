@@ -1,5 +1,5 @@
 {
-	"name": "cyrus-cloudflare-tunnel-client",
+	"name": "kittu-cloudflare-tunnel-client",
 	"version": "0.2.74",
 	"description": "Cloudflare tunnel client for receiving config updates and webhooks from cyrus-hosted",
 	"repository": {
@@ -39,8 +39,8 @@
 		"tunnel",
 		"webhook",
 		"linear",
-		"cyrus"
+		"kittu"
 	],
-	"author": "Cyrus Team",
-	"license": "MIT"
+	"author": "Kittu Team",
+	"license": "Apache-2.0"
 }

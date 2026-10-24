@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-	CYRUS_COMMENT_MARKER,
 	GitHubCommentService,
-	hasCyrusCommentMarker,
-	withCyrusCommentMarker,
+	hasKittuCommentMarker,
+	KITTU_COMMENT_MARKER,
+	withKittuCommentMarker,
 } from "../src/GitHubCommentService.js";
 
 // Mock global fetch
@@ -84,7 +84,7 @@ describe("GitHubCommentService", () => {
 				id: 12345,
 				html_url:
 					"https://github.com/testorg/my-repo/pull/42#issuecomment-12345",
-				body: "Hello from Cyrus!",
+				body: "Hello from Kittu!",
 			};
 
 			mockFetch.mockResolvedValueOnce({
@@ -97,7 +97,7 @@ describe("GitHubCommentService", () => {
 				owner: "testorg",
 				repo: "my-repo",
 				issueNumber: 42,
-				body: "Hello from Cyrus!",
+				body: "Hello from Kittu!",
 			});
 
 			expect(mockFetch).toHaveBeenCalledWith(
@@ -111,7 +111,7 @@ describe("GitHubCommentService", () => {
 						"X-GitHub-Api-Version": "2022-11-28",
 					},
 					body: JSON.stringify({
-						body: `Hello from Cyrus!\n\n${CYRUS_COMMENT_MARKER}`,
+						body: `Hello from Kittu!\n\n${KITTU_COMMENT_MARKER}`,
 					}),
 				},
 			);
@@ -276,7 +276,7 @@ describe("GitHubCommentService", () => {
 						"X-GitHub-Api-Version": "2022-11-28",
 					},
 					body: JSON.stringify({
-						body: `Fixed the error handling!\n\n${CYRUS_COMMENT_MARKER}`,
+						body: `Fixed the error handling!\n\n${KITTU_COMMENT_MARKER}`,
 					}),
 				},
 			);
@@ -309,15 +309,15 @@ describe("GitHubCommentService", () => {
 
 	describe("self-authored marker", () => {
 		it("appends the hidden marker once", () => {
-			const once = withCyrusCommentMarker("hi");
-			expect(once).toBe(`hi\n\n${CYRUS_COMMENT_MARKER}`);
-			expect(withCyrusCommentMarker(once)).toBe(once);
+			const once = withKittuCommentMarker("hi");
+			expect(once).toBe(`hi\n\n${KITTU_COMMENT_MARKER}`);
+			expect(withKittuCommentMarker(once)).toBe(once);
 		});
 
 		it("detects the marker", () => {
-			expect(hasCyrusCommentMarker(`x ${CYRUS_COMMENT_MARKER}`)).toBe(true);
-			expect(hasCyrusCommentMarker("plain @cyrus please")).toBe(false);
-			expect(hasCyrusCommentMarker(undefined)).toBe(false);
+			expect(hasKittuCommentMarker(`x ${KITTU_COMMENT_MARKER}`)).toBe(true);
+			expect(hasKittuCommentMarker("plain @kittu please")).toBe(false);
+			expect(hasKittuCommentMarker(undefined)).toBe(false);
 		});
 	});
 });

@@ -55,7 +55,7 @@ export function inspect(directory, env = process.env) {
 		if (
 			p.name !== name ||
 			p.version !== r.version ||
-			JSON.stringify(p.cyrusTestRelease) !== JSON.stringify(stamp)
+			JSON.stringify(p.kittuTestRelease) !== JSON.stringify(stamp)
 		)
 			throw new Error(`Identity/provenance mismatch: ${name}`);
 		if (
@@ -107,7 +107,7 @@ if (
 				p = JSON.parse(readFileSync(path, "utf8"));
 			if (p.version !== stamp.version)
 				throw new Error("Version drift before stamping.");
-			p.cyrusTestRelease = stamp;
+			p.kittuTestRelease = stamp;
 			writeFileSync(path, `${JSON.stringify(p, null, 2)}\n`);
 		}
 	} else if (cmd === "manifest")

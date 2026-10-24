@@ -1,5 +1,5 @@
 {
-	"name": "cyrus-github-event-transport",
+	"name": "kittu-github-event-transport",
 	"version": "0.2.74",
 	"description": "GitHub event transport for receiving and verifying forwarded GitHub webhooks",
 	"repository": {
@@ -21,7 +21,7 @@
 		"test:run": "vitest run"
 	},
 	"dependencies": {
-		"cyrus-core": "workspace:*",
+		"kittu-core": "workspace:*",
 		"fastify": "^5.12.5"
 	},
 	"devDependencies": {

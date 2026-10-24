@@ -34,7 +34,7 @@ const git = (cwd: string, cmd: string): string =>
 describe("GitService.createGitWorktree with a real remote branch", () => {
 	let root: string;
 	let origin: string;
-	let repo: string; // the repository Cyrus manages
+	let repo: string; // the repository Kittu manages
 	let other: string; // a second clone used to push to origin
 	let worktrees: string;
 	let service: GitService;
@@ -84,7 +84,7 @@ describe("GitService.createGitWorktree with a real remote branch", () => {
 			savedEnv[k] = process.env[k];
 			process.env[k] = v;
 		}
-		root = realpathSync(mkdtempSync(join(tmpdir(), "cyrus-git-it-")));
+		root = realpathSync(mkdtempSync(join(tmpdir(), "kittu-git-it-")));
 		origin = join(root, "origin.git");
 		repo = join(root, "repo");
 		other = join(root, "other");
@@ -98,7 +98,7 @@ describe("GitService.createGitWorktree with a real remote branch", () => {
 		vi.clearAllMocks();
 		// The fixture remote is a local path: allow the file protocol (tests only).
 		service = new GitService(
-			{ cyrusHome: join(root, "home"), gitAllowFileProtocol: true },
+			{ kittuHome: join(root, "home"), gitAllowFileProtocol: true },
 			logger,
 		);
 	});

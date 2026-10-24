@@ -1,24 +1,24 @@
 import { LinearClient } from "@linear/sdk";
-import { ClaudeRunner } from "cyrus-claude-runner";
-import { LinearEventTransport } from "cyrus-linear-event-transport";
-import { createCyrusToolsServer } from "cyrus-mcp-tools";
+import { ClaudeRunner } from "kittu-claude-runner";
+import { LinearEventTransport } from "kittu-linear-event-transport";
+import { createKittuToolsServer } from "kittu-mcp-tools";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSessionManager } from "../src/AgentSessionManager.js";
 import { EdgeWorker } from "../src/EdgeWorker.js";
 import { SharedApplicationServer } from "../src/SharedApplicationServer.js";
 import type { EdgeWorkerConfig, RepositoryConfig } from "../src/types.js";
-import { TEST_CYRUS_HOME } from "./test-dirs.js";
+import { TEST_KITTU_HOME } from "./test-dirs.js";
 
 // Mock all dependencies
 vi.mock("fs/promises");
-vi.mock("cyrus-claude-runner");
-vi.mock("cyrus-mcp-tools");
-vi.mock("cyrus-codex-runner");
-vi.mock("cyrus-linear-event-transport");
+vi.mock("kittu-claude-runner");
+vi.mock("kittu-mcp-tools");
+vi.mock("kittu-codex-runner");
+vi.mock("kittu-linear-event-transport");
 vi.mock("@linear/sdk");
 vi.mock("../src/SharedApplicationServer.js");
 vi.mock("../src/AgentSessionManager.js");
-vi.mock("cyrus-core", async (importOriginal) => {
+vi.mock("kittu-core", async (importOriginal) => {
 	const actual = (await importOriginal()) as any;
 	return {
 		...actual,
@@ -128,7 +128,7 @@ describe("EdgeWorker - Issue Update Session Delivery (CYPACK-954)", () => {
 		vi.spyOn(console, "log").mockImplementation(() => {});
 		vi.spyOn(console, "error").mockImplementation(() => {});
 
-		vi.mocked(createCyrusToolsServer).mockImplementation(() => {
+		vi.mocked(createKittuToolsServer).mockImplementation(() => {
 			return { server: {} } as any;
 		});
 
@@ -149,7 +149,7 @@ describe("EdgeWorker - Issue Update Session Delivery (CYPACK-954)", () => {
 			getSession: vi.fn().mockReturnValue(null),
 			getSessionsByIssueId: vi.fn().mockReturnValue([]),
 			getActiveSessionsByIssueId: vi.fn().mockReturnValue([]),
-			createCyrusAgentSession: vi.fn(),
+			createKittuAgentSession: vi.fn(),
 			createResponseActivity: vi.fn().mockResolvedValue(undefined),
 			postAnalyzingThought: vi.fn().mockResolvedValue(undefined),
 			requestSessionStop: vi.fn(),
@@ -193,7 +193,7 @@ describe("EdgeWorker - Issue Update Session Delivery (CYPACK-954)", () => {
 
 		mockConfig = {
 			proxyUrl: "http://localhost:3000",
-			cyrusHome: TEST_CYRUS_HOME,
+			kittuHome: TEST_KITTU_HOME,
 			repositories: [mockRepository],
 			linearWorkspaces: {
 				"test-workspace": { linearToken: "test-token" },

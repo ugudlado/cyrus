@@ -6,7 +6,7 @@
  * multi-repo base branch determination.
  */
 
-import { LinearIssueTrackerService } from "cyrus-linear-event-transport";
+import { LinearIssueTrackerService } from "kittu-linear-event-transport";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestWorker, scenario } from "./prompt-assembly-utils.js";
 

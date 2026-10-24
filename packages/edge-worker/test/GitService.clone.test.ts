@@ -13,7 +13,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { ILogger, RepositoryConfig } from "cyrus-core";
+import type { ILogger, RepositoryConfig } from "kittu-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GitService } from "../src/GitService.js";
 import { GitEnv, GitEnvError } from "../src/gitEnv.js";
@@ -50,7 +50,7 @@ function makeFx(opts: { remote?: boolean; allowFile?: boolean } = {}): Fx {
 	// plain checkout like ~/repos/<name>.
 	git(base.repo, "worktree", "remove", "--force", base.ws);
 	git(base.repo, "checkout", "main");
-	// Where deleteWorkspace looks: <cyrusHome>/worktrees.
+	// Where deleteWorkspace looks: <kittuHome>/worktrees.
 	const worktrees = join(base.root, "home", "worktrees");
 	const log = logger();
 	const repo = {
@@ -62,7 +62,7 @@ function makeFx(opts: { remote?: boolean; allowFile?: boolean } = {}): Fx {
 	} as unknown as RepositoryConfig;
 	const service = new GitService(
 		{
-			cyrusHome: join(base.root, "home"),
+			kittuHome: join(base.root, "home"),
 			gitAllowFileProtocol: opts.allowFile ?? true,
 			cloneMinFreeBytes: 0,
 		},
@@ -139,7 +139,7 @@ describe("clone per session", () => {
 
 	it("passes --no-hardlinks and protocol.file.allow=always on the clone call only", async () => {
 		const plain = new GitService(
-			{ cyrusHome: join(fx.root, "home2"), cloneMinFreeBytes: 0 },
+			{ kittuHome: join(fx.root, "home2"), cloneMinFreeBytes: 0 },
 			fx.log,
 		);
 		const calls: string[][] = [];
@@ -161,7 +161,7 @@ describe("clone per session", () => {
 		expect(withFile[0]).toContain("--no-hardlinks");
 		expect(withFile[1]).toContain(realpathSync.native(fx.source));
 		// and the pinned env itself never allows the file protocol
-		const env = new GitEnv({ cyrusHome: join(fx.root, "h3") }).plainScope(
+		const env = new GitEnv({ kittuHome: join(fx.root, "h3") }).plainScope(
 			fx.root,
 		).env;
 		const keys = Array.from(
@@ -197,7 +197,7 @@ describe("clone per session", () => {
 	it("refuses to clone below the free-space guard and flags the repo", async () => {
 		const guarded = new GitService(
 			{
-				cyrusHome: join(fx.root, "home"),
+				kittuHome: join(fx.root, "home"),
 				gitAllowFileProtocol: true,
 				cloneMinFreeBytes: Number.MAX_SAFE_INTEGER,
 			},
@@ -250,7 +250,7 @@ describe("clone per session", () => {
 
 	it("deleteWorkspace removes the directory, runs teardown once, and runs no git", async () => {
 		await fx.service.createGitWorktree(issue(), [fx.repo]);
-		const teardown = join(fx.ws(), "cyrus-teardown.sh");
+		const teardown = join(fx.ws(), "kittu-teardown.sh");
 		writeFileSync(
 			teardown,
 			`#!/bin/sh\necho "$LINEAR_ISSUE_IDENTIFIER" >> "${fx.root}/teardown-ran"\n`,
@@ -728,7 +728,7 @@ describe("sweep and legacy worktree cutover", () => {
 	it("cutover: clean legacy worktrees are set aside, dirty ones stay unless --discard", () => {
 		const f = legacy();
 		try {
-			const svc = new GitService({ cyrusHome: join(f.root, "home") }, logger());
+			const svc = new GitService({ kittuHome: join(f.root, "home") }, logger());
 			const repo = { id: "repo-1", name: "r", repositoryPath: f.repo } as never;
 			const base = join(f.root, "worktrees");
 			// dirty
@@ -762,7 +762,7 @@ describe("sweep and legacy worktree cutover", () => {
 	it("cutover: skips a workspace a session still uses", () => {
 		const f = legacy();
 		try {
-			const svc = new GitService({ cyrusHome: join(f.root, "home") }, logger());
+			const svc = new GitService({ kittuHome: join(f.root, "home") }, logger());
 			const res = svc.migrateLegacyWorktrees({
 				baseDirs: [join(f.root, "worktrees")],
 				repositories: [
@@ -785,7 +785,7 @@ describe("sweep and legacy worktree cutover", () => {
 	it("cutover: a clean legacy worktree is moved aside", () => {
 		const f = legacy();
 		try {
-			const svc = new GitService({ cyrusHome: join(f.root, "home") }, logger());
+			const svc = new GitService({ kittuHome: join(f.root, "home") }, logger());
 			const res = svc.migrateLegacyWorktrees({
 				baseDirs: [join(f.root, "worktrees")],
 				repositories: [
@@ -826,7 +826,7 @@ describe("sweep and legacy worktree cutover", () => {
 				join(f.repo, ".git", "worktrees", "ENG-1", "commondir"),
 				`${evil}\n`,
 			);
-			const svc = new GitService({ cyrusHome: join(f.root, "home") }, logger());
+			const svc = new GitService({ kittuHome: join(f.root, "home") }, logger());
 			const spy = vi.spyOn(svc.gitEnv, "run");
 			const res = svc.migrateLegacyWorktrees({
 				baseDirs: [join(f.root, "worktrees")],
@@ -854,7 +854,7 @@ describe("sweep and legacy worktree cutover", () => {
 				join(f.ws, ".git"),
 				`gitdir: ${f.root}/elsewhere/.git/worktrees/ENG-1\n`,
 			);
-			const svc = new GitService({ cyrusHome: join(f.root, "home") }, logger());
+			const svc = new GitService({ kittuHome: join(f.root, "home") }, logger());
 			const res = svc.migrateLegacyWorktrees({
 				baseDirs: [join(f.root, "worktrees")],
 				repositories: [

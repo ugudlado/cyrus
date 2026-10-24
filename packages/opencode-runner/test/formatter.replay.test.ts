@@ -50,20 +50,20 @@ describe("OpenCodeMessageFormatter replay", () => {
 					},
 					{
 						content:
-							"Add toolsets to cyrus-core EdgeConfig schema + regenerate JSON schemas",
+							"Add toolsets to kittu-core EdgeConfig schema + regenerate JSON schemas",
 						priority: "high",
 						status: "in_progress",
 					},
 					{
 						content:
-							"Wire toolsets through cyrus ConfigManager and ToolPermissionResolver",
+							"Wire toolsets through kittu ConfigManager and ToolPermissionResolver",
 						priority: "high",
 						status: "pending",
 					},
 				],
 			}),
 		).toBe(
-			"- [x] Explore cyrus-hosted /settings/tools page and current platform selector\n- [x] Explore cypack edgeconfig schema for allowed tools\n- [x] Design toolset data model and product decisions\n- [ ] Add toolsets to cyrus-core EdgeConfig schema + regenerate JSON schemas (in progress)\n- [ ] Wire toolsets through cyrus ConfigManager and ToolPermissionResolver (pending)",
+			"- [x] Explore cyrus-hosted /settings/tools page and current platform selector\n- [x] Explore cypack edgeconfig schema for allowed tools\n- [x] Design toolset data model and product decisions\n- [ ] Add toolsets to kittu-core EdgeConfig schema + regenerate JSON schemas (in progress)\n- [ ] Wire toolsets through kittu ConfigManager and ToolPermissionResolver (pending)",
 		);
 	});
 

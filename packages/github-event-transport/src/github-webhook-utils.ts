@@ -189,11 +189,11 @@ export function extractSessionKey(event: GitHubWebhookEvent): string {
 }
 
 /**
- * Strip the @cyrusagent mention from a comment body to get the actual instructions
+ * Strip the @kittuagent mention from a comment body to get the actual instructions
  */
 export function stripMention(
 	commentBody: string,
-	mentionHandle: string = "@cyrusagent",
+	mentionHandle: string = "@kittuagent",
 ): string {
 	// Remove the mention and any surrounding whitespace
 	return commentBody

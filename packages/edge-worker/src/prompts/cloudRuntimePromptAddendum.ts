@@ -1,5 +1,5 @@
 /**
- * Optional system-prompt addendum for Cyrus-managed cloud runtimes.
+ * Optional system-prompt addendum for Kittu-managed cloud runtimes.
  *
  * On our managed cloud runtimes the dev environment's system-wide packages
  * (`apt` / global `npm`) are provisioned out-of-band from a curated list the
@@ -8,15 +8,15 @@
  * persist and may fail on permissions — the correct remedy is to tell the user
  * to add it via that settings page.
  *
- * Only injected when the environment variable `CYRUS_CLOUD_RUNTIME` is set to a
+ * Only injected when the environment variable `KITTU_CLOUD_RUNTIME` is set to a
  * truthy value. cyrus-hosted sets this on cloud-runtime droplets and leaves it
  * unset for self-host runtimes (where the user manages their own packages).
  */
 export const CLOUD_RUNTIME_PROMPT_ADDENDUM = `
 <cloud_runtime_packages>
-You are running on a Cyrus-managed cloud runtime. The system-wide packages
+You are running on a Kittu-managed cloud runtime. The system-wide packages
 available in this environment (\`apt\` packages and global \`npm\` packages) can be
-extended in the Cyrus dashboard.
+extended in the Kittu dashboard.
 
 If you discover that a system package, tool, or CLI binary you need is **not
 installed** (for example \`command not found\`, a missing \`apt\` package, or a
@@ -36,7 +36,7 @@ Instead:
 
 /**
  * Append the cloud-runtime addendum to a system prompt fragment, but only when
- * the `CYRUS_CLOUD_RUNTIME` env var is truthy. Returns the existing prompt
+ * the `KITTU_CLOUD_RUNTIME` env var is truthy. Returns the existing prompt
  * unchanged otherwise.
  */
 export function appendCloudRuntimeAddendum(
@@ -51,7 +51,7 @@ export function appendCloudRuntimeAddendum(
 }
 
 function isCloudRuntimeEnabled(): boolean {
-	const raw = process.env.CYRUS_CLOUD_RUNTIME;
+	const raw = process.env.KITTU_CLOUD_RUNTIME;
 	if (!raw) return false;
 	const normalized = raw.trim().toLowerCase();
 	return normalized === "1" || normalized === "true" || normalized === "yes";

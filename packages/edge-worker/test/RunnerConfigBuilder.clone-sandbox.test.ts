@@ -1,4 +1,4 @@
-import type { CyrusAgentSession, ILogger, RepositoryConfig } from "cyrus-core";
+import type { ILogger, KittuAgentSession, RepositoryConfig } from "kittu-core";
 import { describe, expect, it } from "vitest";
 import {
 	type IChatToolResolver,
@@ -40,7 +40,7 @@ function build(opts: {
 			issueId: "issue-1",
 			issue: { identifier: "ABC-1" },
 			workspace: { path: "/wt/ABC-1", isGitWorktree: true },
-		} as unknown as CyrusAgentSession,
+		} as unknown as KittuAgentSession,
 		repository: {
 			id: "repo-a",
 			name: "Repo A",
@@ -50,11 +50,11 @@ function build(opts: {
 		sessionId: "sess-1",
 		systemPrompt: "test",
 		allowedTools: ["Read(**)"],
-		allowedDirectories: ["/home/me/.cyrus/ABC-1/attachments"],
+		allowedDirectories: ["/home/me/.kittu/ABC-1/attachments"],
 		ghTokenDirs: opts.ghTokenDirs,
 		githubTokenRoot: opts.githubTokenRoot,
 		disallowedTools: ["WebSearch"],
-		cyrusHome: "/home/me/.cyrus",
+		kittuHome: "/home/me/.kittu",
 		linearWorkspaceId: "ws-1",
 		logger: silentLogger,
 		onMessage: () => {},
@@ -75,7 +75,7 @@ describe("RunnerConfigBuilder sandbox (clone per session)", () => {
 	it("writes only the clone; reads the clone, attachments and exactly the session's token dirs", () => {
 		const config = build({ sandboxEnabled: true, ghTokenDirs: tokenDirs });
 		expect(config.sandbox.filesystem).toEqual({
-			allowRead: [".", "/home/me/.cyrus/ABC-1/attachments", ...tokenDirs],
+			allowRead: [".", "/home/me/.kittu/ABC-1/attachments", ...tokenDirs],
 			denyRead: ["~/"],
 			allowWrite: ["/wt/ABC-1"],
 		});
@@ -85,7 +85,7 @@ describe("RunnerConfigBuilder sandbox (clone per session)", () => {
 		const config = build({ sandboxEnabled: true });
 		expect(config.sandbox.filesystem.allowRead).toEqual([
 			".",
-			"/home/me/.cyrus/ABC-1/attachments",
+			"/home/me/.kittu/ABC-1/attachments",
 		]);
 		expect(config.sandbox.filesystem.allowWrite).toEqual(["/wt/ABC-1"]);
 	});
@@ -98,7 +98,7 @@ describe("RunnerConfigBuilder sandbox (clone per session)", () => {
 		});
 		expect(config.sandbox.filesystem.allowRead).toEqual([
 			".",
-			"/home/me/.cyrus/ABC-1/attachments",
+			"/home/me/.kittu/ABC-1/attachments",
 			"/home/me/.supabase",
 			tokenDirs[0],
 		]);
@@ -132,7 +132,7 @@ describe("RunnerConfigBuilder sandbox (clone per session)", () => {
 			allowWrite: ["/wt/ABC-1"],
 			allowRead: [
 				"/wt/ABC-1",
-				"/home/me/.cyrus/ABC-1/attachments",
+				"/home/me/.kittu/ABC-1/attachments",
 				...tokenDirs,
 			],
 		});

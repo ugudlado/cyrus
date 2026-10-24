@@ -8,7 +8,7 @@ const { getConfig, start } = vi.hoisted(() => ({
 	getConfig: vi.fn(),
 	start: vi.fn(),
 }));
-vi.mock("cyrus-cloudflare-tunnel-client", async (original) => ({
+vi.mock("kittu-cloudflare-tunnel-client", async (original) => ({
 	...(await original<object>()),
 	ConfigApiClient: {
 		getConfig,
@@ -37,13 +37,13 @@ describe("auth listener port persistence", () => {
 		19119,
 		undefined,
 	])("writes and reloads hosted port %s before starting", async (serverPort) => {
-		const home = mkdtempSync(join(tmpdir(), "cyrus-auth-port-"));
+		const home = mkdtempSync(join(tmpdir(), "kittu-auth-port-"));
 		homes.push(home);
 		for (const name of [
 			"CLOUDFLARE_TOKEN",
-			"CYRUS_API_KEY",
-			"CYRUS_SETUP_PENDING",
-			"CYRUS_SERVER_PORT",
+			"KITTU_API_KEY",
+			"KITTU_SETUP_PENDING",
+			"KITTU_SERVER_PORT",
 		])
 			vi.stubEnv(name, undefined);
 		vi.spyOn(console, "log").mockImplementation(() => {});
@@ -56,20 +56,20 @@ describe("auth listener port persistence", () => {
 			},
 		});
 		start.mockImplementation(async () => {
-			expect(process.env.CYRUS_SERVER_PORT).toBe(
+			expect(process.env.KITTU_SERVER_PORT).toBe(
 				serverPort === undefined ? undefined : "19119",
 			);
-			expect(process.env.CYRUS_SETUP_PENDING).toBe("true");
+			expect(process.env.KITTU_SETUP_PENDING).toBe("true");
 		});
 		const app = {
-			cyrusHome: home,
+			kittuHome: home,
 			logger: { success: vi.fn(), error: vi.fn(), divider: vi.fn() },
 		} as unknown as Application;
 		await new AuthCommand(app).execute(["fixture-auth"]);
 		expect(start).toHaveBeenCalledOnce();
 		const env = readFileSync(join(home, ".env"), "utf8");
 		if (serverPort === undefined)
-			expect(env).not.toContain("CYRUS_SERVER_PORT");
-		else expect(env).toContain("CYRUS_SERVER_PORT=19119\n");
+			expect(env).not.toContain("KITTU_SERVER_PORT");
+		else expect(env).toContain("KITTU_SERVER_PORT=19119\n");
 	});
 });

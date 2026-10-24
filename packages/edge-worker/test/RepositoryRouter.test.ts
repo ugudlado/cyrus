@@ -2,7 +2,7 @@ import { AgentActivitySignal } from "@linear/sdk";
 import type {
 	LinearAgentSessionCreatedWebhook,
 	RepositoryConfig,
-} from "cyrus-core";
+} from "kittu-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	RepositoryRouter,
@@ -516,8 +516,8 @@ describe("RepositoryRouter", () => {
 		describe("when issue description contains [repo=...] tag", () => {
 			it("should route to repository when tag matches GitHub URL", async () => {
 				// Given: Repositories with different GitHub URLs
-				const cyrusRepo = env
-					.repository("repo-1", "Cyrus")
+				const kittuRepo = env
+					.repository("repo-1", "Kittu")
 					.inWorkspace("default-workspace")
 					.withGithubUrl("https://github.com/ceedaragents/cyrus")
 					.build();
@@ -542,13 +542,13 @@ describe("RepositoryRouter", () => {
 
 				// When: Determining repository
 				const result = await env.router.determineRepositoryForWebhook(webhook, [
-					cyrusRepo,
+					kittuRepo,
 					otherRepo,
 				]);
 
-				// Then: Should select cyrus repo via description-tag routing
+				// Then: Should select kittu repo via description-tag routing
 				expectRouting(result).shouldSelectRepositoryVia(
-					cyrusRepo,
+					kittuRepo,
 					"description-tag",
 				);
 			});
@@ -845,9 +845,9 @@ describe("RepositoryRouter", () => {
 			it("should handle escaped brackets from Linear (\\[repo=...\\])", () => {
 				// Linear escapes square brackets in descriptions
 				const result = env.router.parseRepoTagsFromDescription(
-					"test\\n\\n\\[repo=cyrus\\]",
+					"test\\n\\n\\[repo=kittu\\]",
 				);
-				expect(result).toEqual([{ repo: "cyrus" }]);
+				expect(result).toEqual([{ repo: "kittu" }]);
 			});
 
 			it("should handle escaped brackets with org/repo format", () => {
@@ -924,17 +924,17 @@ describe("RepositoryRouter", () => {
 
 			it("should parse comma-separated repos in unbracketed syntax", () => {
 				const result = env.router.parseRepoTagsFromDescription(
-					"repo=cyrus,cyrus-hosted",
+					"repo=kittu,cyrus-hosted",
 				);
-				expect(result).toEqual([{ repo: "cyrus" }, { repo: "cyrus-hosted" }]);
+				expect(result).toEqual([{ repo: "kittu" }, { repo: "cyrus-hosted" }]);
 			});
 
 			it("should parse comma-separated repos with branch override", () => {
 				const result = env.router.parseRepoTagsFromDescription(
-					"repos=cyrus,cyrus-hosted#feature-branch",
+					"repos=kittu,cyrus-hosted#feature-branch",
 				);
 				expect(result).toEqual([
-					{ repo: "cyrus", branch: "feature-branch" },
+					{ repo: "kittu", branch: "feature-branch" },
 					{ repo: "cyrus-hosted", branch: "feature-branch" },
 				]);
 			});
@@ -948,9 +948,9 @@ describe("RepositoryRouter", () => {
 
 			it("should deduplicate repos across bracketed and unbracketed syntax", () => {
 				const result = env.router.parseRepoTagsFromDescription(
-					"[repo=cyrus] and also repo=cyrus,cyrus-hosted",
+					"[repo=kittu] and also repo=kittu,cyrus-hosted",
 				);
-				expect(result).toEqual([{ repo: "cyrus" }, { repo: "cyrus-hosted" }]);
+				expect(result).toEqual([{ repo: "kittu" }, { repo: "cyrus-hosted" }]);
 			});
 
 			it("should not match repo= inside URLs or paths", () => {

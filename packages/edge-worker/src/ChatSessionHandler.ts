@@ -4,18 +4,18 @@ import type {
 	SandboxSettings,
 	SDKMessage,
 	SdkPluginConfig,
-} from "cyrus-claude-runner";
+} from "kittu-claude-runner";
 import type {
 	AgentRunnerConfig,
 	AgentSessionInfo,
-	CyrusAgentSession,
 	IAgentRunner,
 	ILogger,
+	KittuAgentSession,
 	OpenCodeConfigOverrides,
 	RepositoryConfig,
 	RunnerType,
-} from "cyrus-core";
-import { createLogger } from "cyrus-core";
+} from "kittu-core";
+import { createLogger } from "kittu-core";
 import { AgentSessionManager } from "./AgentSessionManager.js";
 import type { ChatRepositoryProvider } from "./ChatRepositoryProvider.js";
 import type { RunnerConfigBuilder } from "./RunnerConfigBuilder.js";
@@ -99,7 +99,7 @@ export interface ChatPlatformAdapter<TEvent> {
  * Callbacks for EdgeWorker integration (same pattern as RepositoryRouterDeps).
  */
 export interface ChatSessionHandlerDeps {
-	cyrusHome: string;
+	kittuHome: string;
 	/** Provider for live repository paths, default repo, and workspace ID */
 	chatRepositoryProvider: ChatRepositoryProvider;
 	/** Shared RunnerConfigBuilder for constructing runner configs */
@@ -299,7 +299,7 @@ export class ChatSessionHandler<TEvent> {
 			// No session exists for this thread. Only events explicitly allowed to
 			// start a session may do so — e.g. a Slack @mention. A plain follow-up
 			// message in an unbound thread must be ignored, otherwise every message
-			// in any channel Cyrus can see would spin up a session.
+			// in any channel Kittu can see would spin up a session.
 			if (
 				!existingSessionId &&
 				this.adapter.isSessionInitiatingEvent?.(event) === false
@@ -455,7 +455,7 @@ export class ChatSessionHandler<TEvent> {
 	 * dedicated AgentSessionManager — they aren't reachable from
 	 * EdgeWorker's primary AgentSessionManager.
 	 */
-	getAllChatSessions(): CyrusAgentSession[] {
+	getAllChatSessions(): KittuAgentSession[] {
 		return this.sessionManager.getAllSessions();
 	}
 
@@ -481,7 +481,7 @@ export class ChatSessionHandler<TEvent> {
 
 	/** Mark how far this session has thread context, for the next catch-up */
 	private recordThreadContextTs(
-		session: CyrusAgentSession,
+		session: KittuAgentSession,
 		event: TEvent,
 	): void {
 		const ts = this.adapter.getThreadContextTs?.(event);
@@ -507,7 +507,7 @@ export class ChatSessionHandler<TEvent> {
 	 * window instead of losing it.
 	 */
 	private async withThreadContext(
-		session: CyrusAgentSession,
+		session: KittuAgentSession,
 		event: TEvent,
 		taskInstructions: string,
 	): Promise<string> {
@@ -537,7 +537,7 @@ export class ChatSessionHandler<TEvent> {
 	 * already, so re-reading the thread would only duplicate what the session has.
 	 */
 	private async withThreadCatchup(
-		session: CyrusAgentSession,
+		session: KittuAgentSession,
 		event: TEvent,
 		taskInstructions: string,
 	): Promise<string> {
@@ -552,7 +552,7 @@ export class ChatSessionHandler<TEvent> {
 	 */
 	private async resumeSession(
 		event: TEvent,
-		existingSession: CyrusAgentSession,
+		existingSession: KittuAgentSession,
 		sessionId: string,
 		resumeSessionId: string,
 		runnerType: RunnerType,
@@ -604,7 +604,7 @@ export class ChatSessionHandler<TEvent> {
 	}
 
 	private getResumeInfo(
-		session: CyrusAgentSession,
+		session: KittuAgentSession,
 	): { sessionId: string; runnerType: RunnerType } | undefined {
 		if (session.claudeSessionId) {
 			return { sessionId: session.claudeSessionId, runnerType: "claude" };
@@ -759,7 +759,7 @@ export class ChatSessionHandler<TEvent> {
 		try {
 			const sanitizedKey = threadKey.replace(/[^a-zA-Z0-9.-]/g, "_");
 			const workspacePath = join(
-				this.deps.cyrusHome,
+				this.deps.kittuHome,
 				`${this.adapter.platformName}-workspaces`,
 				sanitizedKey,
 			);
@@ -815,7 +815,7 @@ export class ChatSessionHandler<TEvent> {
 			runnerType,
 			sandboxSettings: this.deps.getSandboxSettings?.(),
 			egressCaCertPath: this.deps.getEgressCaCertPath?.(),
-			cyrusHome: this.deps.cyrusHome,
+			kittuHome: this.deps.kittuHome,
 			platformName: this.adapter.platformName,
 			linearWorkspaceId,
 			repository,
